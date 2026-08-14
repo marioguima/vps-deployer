@@ -80,6 +80,23 @@ COOLIFY_LOCALHOST_SSH_OK
 
 Isso valida a camada SSH necessária para o Coolify administrar `This machine` sem habilitar senha para root.
 
+## TrackPixel homolog no Coolify
+
+O recurso deve usar:
+
+```text
+GitHub App: git-hub--marioguima
+Repository: marioguima/trackpixel
+Branch: homolog
+Build pack: Docker Compose
+Base directory: /
+Compose file: /docker-compose.yml
+```
+
+A extensão do Compose precisa bater exatamente com o arquivo no Git. O TrackPixel usa `docker-compose.yml` (não `docker-compose.yaml`). Se o caminho estiver como `/docker-compose.yaml`, o recurso é criado, mas o Coolify fica com `Load a Compose file to deploy` e a área de conteúdo Compose vazia. Corrija para `/docker-compose.yml` e então clique `Load compose` antes de configurar variáveis ou fazer deploy.
+
+O `docker-compose.prod.yml` é apenas override de limites/logging e não é necessário para o primeiro deploy funcional no Coolify.
+
 ## Regra aprendida
 
 Scripts com `set -e`, passwords com caracteres especiais e geração de secrets não devem ser colados como um bloco que altera o shell SSH interativo. Para operações destrutivas ou de bootstrap, usar um arquivo versionado executado como processo separado, por exemplo:
@@ -92,13 +109,11 @@ Assim falhas retornam ao prompt e não encerram a sessão Termius.
 
 ## Próximos passos
 
-1. Voltar ao onboarding e clicar `Check again` em `This machine`.
-2. Concluir a validação do servidor/Docker.
-3. Manter o Nginx atual responsável por 80/443; não iniciar um proxy Coolify que concorra por essas portas durante a migração.
-4. Configurar GitHub App pelo fluxo automático do Coolify.
-5. Criar o recurso TrackPixel homolog apontando para `marioguima/trackpixel`, branch `homolog`, Docker Compose.
-6. Importar/preservar as variáveis de homolog existentes.
-7. Validar push -> auto-deploy -> build -> migration -> containers -> health.
-8. Repetir para produção (`main`).
-9. Transferir o repositório para a organização e validar novamente.
-10. Só então desativar/remover VPS Deployer, webhook/App antigos e infraestrutura transitória.
+1. Manter o Nginx atual responsável por 80/443 com proxy Coolify em `Custom`.
+2. Usar a GitHub App conectada ao `trackpixel`.
+3. Carregar `/docker-compose.yml` no recurso homolog.
+4. Importar/preservar as variáveis de homolog existentes.
+5. Validar push -> auto-deploy -> build -> migration -> containers -> health.
+6. Repetir para produção (`main`).
+7. Transferir o repositório para a organização e validar novamente.
+8. Só então desativar/remover VPS Deployer, webhook/App antigos e infraestrutura transitória.
