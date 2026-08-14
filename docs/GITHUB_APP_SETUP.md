@@ -45,22 +45,18 @@ foto do perfil
 
 #### GitHub App name
 
-Tente:
-
-```text
-VPS Deployer
-```
-
-O nome precisa ser único no GitHub. Se já existir, use algo como:
+Use um nome globalmente único. Nome validado na instalação real:
 
 ```text
 marioguima-vps-deployer
 ```
 
+Nomes de GitHub Apps precisam ser únicos no GitHub; `VPS Deployer` já estava ocupado durante o primeiro bootstrap.
+
 #### Description
 
 ```text
-Read-only deployment identity used by the VPS Deployer to fetch private repository commits.
+Acesso somente leitura usado pelo VPS Deployer para buscar código de repositórios privados em deploys disparados por webhook.
 ```
 
 #### Homepage URL
@@ -165,7 +161,11 @@ App ID
 
 Anote esse número. Ele será configurado na VPS.
 
-Não confundir com `Client ID`.
+O GitHub aceita App ID ou Client ID como `iss` do JWT; a documentação atual recomenda Client ID, mas App ID continua válido. A primeira instalação validada foi configurada com:
+
+```text
+GITHUB_APP_ID=4592046
+```
 
 ---
 
@@ -229,18 +229,44 @@ Isso **não** autoriza deploy automático: o `/etc/vps-deployer/projects.json` c
 
 ---
 
-## 7. O que será guardado na VPS
+## 7. Copiar e proteger a private key na VPS
 
-Depois da criação manual da App, a configuração esperada será aproximadamente:
+No primeiro bootstrap real, o upload foi feito por SFTP usando Termius para:
 
 ```text
-/etc/vps-deployer/github-app.pem     private key da App
-/etc/vps-deployer/env                App ID e caminhos/configuração
+/home/ubuntu/vps-deployer-github-app.pem
 ```
 
-A private key deve ter permissões restritas ao root e ao usuário/grupo necessário para o `vps-deployer`.
+Depois a chave foi instalada no local definitivo:
 
-Não guardar installation access token permanentemente.
+```bash
+sudo install \
+  -o root \
+  -g vps-deployer \
+  -m 0640 \
+  /home/ubuntu/vps-deployer-github-app.pem \
+  /etc/vps-deployer/github-app.pem
+
+rm -f /home/ubuntu/vps-deployer-github-app.pem
+```
+
+Configuração no `/etc/vps-deployer/env`:
+
+```env
+GITHUB_APP_ID=4592046
+GITHUB_APP_PRIVATE_KEY=/etc/vps-deployer/github-app.pem
+```
+
+Validação real concluída:
+
+```text
+-rw-r----- 1 root vps-deployer ... /etc/vps-deployer/github-app.pem
+OK: vps-deployer consegue ler a chave
+GITHUB_APP_ID=4592046
+GITHUB_APP_PRIVATE_KEY=/etc/vps-deployer/github-app.pem
+```
+
+Nunca usar `cat` para exibir a private key em logs ou chat.
 
 ---
 
@@ -259,9 +285,13 @@ O fluxo do código será:
 8. token é descartado/expira
 ```
 
+O JWT é assinado com RS256, deve ter duração de no máximo 10 minutos e o `iat` pode ser deslocado 60 segundos para trás para tolerar clock drift.
+
 Installation access tokens do GitHub App expiram após aproximadamente uma hora e devem ser gerados novamente quando necessário.
 
 Para Git via HTTPS, a permissão `Contents` é a permissão necessária para a App ler o conteúdo do repositório.
+
+O token não deve ser persistido em arquivo, URL de remote ou log. O helper do deployer deve mantê-lo apenas em memória/ambiente temporário e usar um mecanismo como `GIT_ASKPASS` para autenticar o Git sem colocar o token na linha de comando.
 
 ---
 
@@ -272,12 +302,12 @@ Não fazer deploy real imediatamente.
 A sequência segura será:
 
 ```text
-A. criar App
-B. instalar App em marioguima/trackpixel
-C. gerar private key PEM
-D. copiar PEM com segurança para a VPS
-E. configurar App ID na VPS
-F. implementar/instalar helper que gera installation token
+A. criar App                                  VALIDADO
+B. instalar App em marioguima/trackpixel     VALIDADO
+C. gerar private key PEM                     VALIDADO
+D. copiar PEM com segurança para a VPS       VALIDADO
+E. configurar App ID na VPS                  VALIDADO
+F. validar JWT + installation access token   PRÓXIMO
 G. testar autenticação read-only com TrackPixel
 H. testar git fetch sem alterar /opt/intellifyads
 I. criar clone/working tree de homolog
@@ -325,5 +355,6 @@ projects.json = allowlist explícita dos projetos/branches que realmente implant
 - Installing your own App: https://docs.github.com/en/apps/using-github-apps/installing-your-own-github-app
 - Public/private App visibility: https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/making-a-github-app-public-or-private
 - Managing private keys: https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/managing-private-keys-for-github-apps
+- Generating a JWT: https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-json-web-token-jwt-for-a-github-app
 - Installation access tokens: https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-an-installation-access-token-for-a-github-app
 - Organization webhooks: https://docs.github.com/en/webhooks/types-of-webhooks
