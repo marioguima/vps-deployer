@@ -9,10 +9,6 @@ export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/
 TRACKPIXEL_RESOURCE_UUID="6b0kjkl407ufjocxoucpsgq1"
 
 section() { printf '\n===== %s =====\n' "$*"; }
-run() {
-  printf '+ %s\n' "$*"
-  "$@" 2>&1 || true
-}
 
 section "HOST"
 printf 'timestamp=%s\n' "$(date -Is)"
@@ -51,7 +47,6 @@ if command -v nginx >/dev/null 2>&1; then
     /^[[:space:]]*(listen|server_name|root|alias|proxy_pass|return|ssl_certificate)[[:space:]]/ {
       if (file != lastfile) { print file; lastfile=file }
       line=$0
-      # Never emit ssl_certificate_key even if future regex changes.
       if (line ~ /^[[:space:]]*ssl_certificate_key[[:space:]]/) next
       print line
     }
@@ -79,7 +74,7 @@ fi
 
 section "COOLIFY PROXY STATE"
 if docker inspect coolify >/dev/null 2>&1; then
-  docker exec coolify php artisan tinker --execute='App\\Models\\Server::query()->orderBy("id")->get()->each(function($s){ dump(["id"=>$s->id,"uuid"=>$s->uuid,"name"=>$s->name,"ip"=>$s->ip,"proxy_type"=>$s->proxyType(),"proxy_status"=>data_get($s,"proxy.status")]); });' 2>&1 || true
+  docker exec coolify php artisan tinker --execute='App\Models\Server::query()->orderBy("id")->get()->each(function($s){ dump(["id"=>$s->id,"uuid"=>$s->uuid,"name"=>$s->name,"ip"=>$s->ip,"proxy_type"=>$s->proxyType(),"proxy_status"=>data_get($s,"proxy.status")]); });' 2>&1 || true
 else
   echo 'coolify container not found'
 fi
@@ -102,7 +97,8 @@ else
   for c in "${TP_CONTAINERS[@]}"; do
     echo "-- $c --"
     docker inspect -f 'state={{.State.Status}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}n/a{{end}} ports={{json .NetworkSettings.Ports}}' "$c" 2>/dev/null || true
-    docker inspect -f '{{range $k,$v := .Config.Labels}}{{if or (hasPrefix $k "traefik.") (hasPrefix $k "coolify.")}}{{$k}}={{$v}}{{println}}{{end}}{{end}}' "$c" 2>/dev/null | sort || true
+    docker inspect -f '{{json .Config.Labels}}' "$c" 2>/dev/null |
+      python3 -c 'import json,sys; d=json.load(sys.stdin) or {}; [print(f"{k}={d[k]}") for k in sorted(d) if k.startswith(("traefik.","coolify."))]' || true
   done
 fi
 
