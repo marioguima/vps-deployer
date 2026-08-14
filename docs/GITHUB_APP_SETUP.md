@@ -151,21 +151,29 @@ Create GitHub App
 
 ---
 
-## 4. Anotar o App ID
+## 4. Anotar Client ID e App ID
 
 Na página da App, localize:
 
 ```text
+Client ID
 App ID
 ```
 
-Anote esse número. Ele será configurado na VPS.
+O JWT aceita o Client ID ou o App ID no claim `iss`. A documentação atual do GitHub recomenda usar o **Client ID**.
 
-O GitHub aceita App ID ou Client ID como `iss` do JWT; a documentação atual recomenda Client ID, mas App ID continua válido. A primeira instalação validada foi configurada com:
+O App ID continua útil como identificação e para diagnóstico.
+
+Instalação validada em 2026-08-14:
 
 ```text
-GITHUB_APP_ID=4592046
+GitHub App: marioguima-vps-deployer
+App ID:     4592846
 ```
+
+> Atenção: durante o primeiro bootstrap foi digitado incorretamente `4592046`. Isso gerou `HTTP 404` com `message=Integration not found` em todos os endpoints autenticados como App. Um teste usando o Client ID retornou `GET /app -> HTTP 200` e revelou o App ID correto `4592846`.
+
+Não confundir Client ID com Client Secret. **Client Secret não é necessário neste fluxo.**
 
 ---
 
@@ -250,19 +258,21 @@ sudo install \
 rm -f /home/ubuntu/vps-deployer-github-app.pem
 ```
 
-Configuração no `/etc/vps-deployer/env`:
+Configuração recomendada no `/etc/vps-deployer/env`:
 
 ```env
-GITHUB_APP_ID=4592046
+GITHUB_APP_CLIENT_ID=<Client ID exibido na página da App>
+GITHUB_APP_ID=4592846
 GITHUB_APP_PRIVATE_KEY=/etc/vps-deployer/github-app.pem
 ```
 
-Validação real concluída:
+Para assinar o JWT, o helper deve preferir `GITHUB_APP_CLIENT_ID`.
+
+Validação real da chave concluída:
 
 ```text
 -rw-r----- 1 root vps-deployer ... /etc/vps-deployer/github-app.pem
 OK: vps-deployer consegue ler a chave
-GITHUB_APP_ID=4592046
 GITHUB_APP_PRIVATE_KEY=/etc/vps-deployer/github-app.pem
 ```
 
@@ -275,7 +285,7 @@ Nunca usar `cat` para exibir a private key em logs ou chat.
 O fluxo do código será:
 
 ```text
-1. VPS lê App ID + private key
+1. VPS lê Client ID + private key
 2. gera um JWT curto assinado pela private key
 3. identifica a instalação que tem acesso ao repositório
 4. solicita um installation access token
@@ -293,6 +303,29 @@ Para Git via HTTPS, a permissão `Contents` é a permissão necessária para a A
 
 O token não deve ser persistido em arquivo, URL de remote ou log. O helper do deployer deve mantê-lo apenas em memória/ambiente temporário e usar um mecanismo como `GIT_ASKPASS` para autenticar o Git sem colocar o token na linha de comando.
 
+### Validação real da identidade da App
+
+Em 2026-08-14 foi gerado um JWT usando o Client ID da App e a private key já instalada na VPS.
+
+Resultado:
+
+```text
+App -> HTTP 200
+name=marioguima-vps-deployer
+slug=marioguima-vps-deployer
+id=4592846
+message=
+```
+
+Isso comprova:
+
+- private key correta e legível pelo usuário `vps-deployer`;
+- assinatura RS256 válida;
+- Client ID correto;
+- GitHub reconhecendo a identidade da App.
+
+Ainda falta validar a segunda etapa: descobrir a instalação do `marioguima/trackpixel`, emitir o installation access token e autenticar o Git.
+
 ---
 
 ## 9. Próximos passos depois de criar a App
@@ -306,16 +339,17 @@ A. criar App                                  VALIDADO
 B. instalar App em marioguima/trackpixel     VALIDADO
 C. gerar private key PEM                     VALIDADO
 D. copiar PEM com segurança para a VPS       VALIDADO
-E. configurar App ID na VPS                  VALIDADO
-F. validar JWT + installation access token   PRÓXIMO
-G. testar autenticação read-only com TrackPixel
-H. testar git fetch sem alterar /opt/intellifyads
-I. criar clone/working tree de homolog
-J. checkout exato do SHA recebido pelo webhook
-K. somente então executar Docker/build/migrate/up
-L. validar homolog
-M. aposentar workflow legado
-N. remover OCI_SSH_KEY do repositório
+E. validar identidade/JWT da App             VALIDADO
+F. corrigir App ID e salvar Client ID na VPS PRÓXIMO
+G. emitir installation access token
+H. testar autenticação read-only com TrackPixel
+I. testar git fetch sem alterar /opt/intellifyads
+J. criar clone/working tree de homolog
+K. checkout exato do SHA recebido pelo webhook
+L. somente então executar Docker/build/migrate/up
+M. validar homolog
+N. aposentar workflow legado
+O. remover OCI_SSH_KEY do repositório
 ```
 
 ---
@@ -357,4 +391,5 @@ projects.json = allowlist explícita dos projetos/branches que realmente implant
 - Managing private keys: https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/managing-private-keys-for-github-apps
 - Generating a JWT: https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-json-web-token-jwt-for-a-github-app
 - Installation access tokens: https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-an-installation-access-token-for-a-github-app
+- Repository installation endpoint: https://docs.github.com/en/rest/apps/apps#get-a-repository-installation-for-the-authenticated-app
 - Organization webhooks: https://docs.github.com/en/webhooks/types-of-webhooks
