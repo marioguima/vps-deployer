@@ -65,10 +65,11 @@ if [[ ! -f "$CONFIG_DIR/projects.json" ]]; then
 else
   echo "Preserving existing $CONFIG_DIR/projects.json"
 fi
-if getent group docker >/dev/null 2>&1; then
-  usermod -aG docker vps-deployer
-  echo "Added vps-deployer to docker group (Docker access is effectively privileged)."
-fi
+
+# Do not add the service user to the docker group. Membership in that group is
+# effectively root-equivalent. Project adapters that need Docker run through a
+# tightly-scoped sudo rule instead.
+
 systemctl daemon-reload
 
 echo
