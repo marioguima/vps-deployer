@@ -105,9 +105,27 @@ PIXEL_PORT=3101
 PUBLIC_TRACKING_BASE_URL=https://track-homolog.intellifyads.com
 ```
 
-O primeiro deploy manual foi iniciado com sucesso pelo painel do Coolify para o commit `7420c75...` da branch `homolog`. O histórico/log de deployment passou a ser visível diretamente no dashboard. No momento do registro, o deployment estava `In progress` e já havia concluído a importação do repositório e iniciado a preparação/build do Docker Compose.
+O primeiro deploy manual foi iniciado pelo painel do Coolify para o commit `7420c75...` da branch `homolog`. O fluxo GitHub -> Coolify -> clone -> Docker Compose -> build foi validado, e o histórico/log ficou disponível no dashboard sem SSH.
 
-Esse ponto valida que a operação normal não precisa mais de `sudo vps-deployer-jobs` ou leitura de logs por SSH: acompanhamento, histórico e logs estão disponíveis no Coolify.
+### Primeira falha de build no Coolify
+
+O primeiro deployment terminou `Failed` durante o build do Worker. O Prisma já havia gerado o client com sucesso; a causa real era TypeScript compilando arquivos de teste no build de produção:
+
+```text
+src/processors/webhook-event.processor.test.ts(...): error TS2345
+Argument of type 'Job<Record<string, unknown>, ...>' is not assignable to
+'Job<{ provider: string; payload: Record<string, unknown>; externalEventId?: string }, ...>'
+```
+
+O `apps/worker/tsconfig.json` incluía todo `src`, portanto `*.test.ts` e `__tests__` entravam no `tsc -p tsconfig.json`. Isso não representa falha do runtime do Worker; eram mocks de testes com contrato antigo após a evolução de `PaymentWebhookJob`.
+
+Correção aplicada no branch `homolog`:
+
+```json
+"exclude": ["src/**/*.test.ts", "src/**/*.spec.ts", "src/**/__tests__/**"]
+```
+
+Commit TrackPixel: `72456e65215f063a2926a1015d378250e4ef2e32` (`fix: exclude worker tests from production build`). O push deve servir também como primeiro teste real de auto-deploy via webhook do Coolify.
 
 ## Regra aprendida
 
@@ -121,11 +139,11 @@ Assim falhas retornam ao prompt e não encerram a sessão Termius.
 
 ## Próximos passos
 
-1. Aguardar o primeiro deployment homolog concluir e validar `success`.
-2. Validar containers, migrations e health checks.
-3. Manter o Nginx atual responsável por 80/443 com proxy Coolify em `Custom` e apontá-lo para as portas de homolog.
-4. Configurar endpoint HTTPS definitivo do Coolify/webhook antes de fechar as portas temporárias 8000/6001/6002.
-5. Validar push em `homolog` -> auto-deploy no Coolify.
+1. Confirmar que o commit `72456e6...` disparou auto-deploy no Coolify sem ação manual.
+2. Validar o novo deployment até `success`.
+3. Validar containers, migrations e health checks.
+4. Manter o Nginx atual responsável por 80/443 com proxy Coolify em `Custom` e apontá-lo para as portas de homolog.
+5. Configurar endpoint HTTPS definitivo do Coolify/webhook antes de fechar as portas temporárias 8000/6001/6002.
 6. Repetir para produção (`main`).
 7. Transferir o repositório para a organização e validar novamente.
 8. Só então desativar/remover VPS Deployer, webhook/App antigos e infraestrutura transitória.
