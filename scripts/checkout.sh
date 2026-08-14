@@ -21,12 +21,15 @@ DEPLOY_SHA. Authentication is delegated to vps-deployer-git.
 EOF
 }
 
+command -v git >/dev/null || { echo "git is required" >&2; exit 2; }
+command -v vps-deployer-git >/dev/null || { echo "vps-deployer-git is required" >&2; exit 2; }
+
 [[ -n "$TARGET_DIR" ]] || { usage; exit 2; }
 [[ "$REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || {
   echo "Invalid or missing DEPLOY_REPOSITORY: $REPOSITORY" >&2
   exit 2
 }
-[[ "$BRANCH" =~ ^[A-Za-z0-9._/-]+$ ]] || {
+git check-ref-format --branch "$BRANCH" >/dev/null 2>&1 || {
   echo "Invalid or missing DEPLOY_BRANCH: $BRANCH" >&2
   exit 2
 }
@@ -34,9 +37,6 @@ EOF
   echo "Invalid or missing DEPLOY_SHA; expected a full 40-character SHA" >&2
   exit 2
 }
-
-command -v git >/dev/null || { echo "git is required" >&2; exit 2; }
-command -v vps-deployer-git >/dev/null || { echo "vps-deployer-git is required" >&2; exit 2; }
 
 EXPECTED_URL="https://github.com/${REPOSITORY}.git"
 PARENT_DIR="$(dirname "$TARGET_DIR")"
