@@ -119,13 +119,30 @@ Argument of type 'Job<Record<string, unknown>, ...>' is not assignable to
 
 O `apps/worker/tsconfig.json` incluía todo `src`, portanto `*.test.ts` e `__tests__` entravam no `tsc -p tsconfig.json`. Isso não representa falha do runtime do Worker; eram mocks de testes com contrato antigo após a evolução de `PaymentWebhookJob`.
 
-Correção aplicada no branch `homolog`:
+Correção de build:
 
 ```json
 "exclude": ["src/**/*.test.ts", "src/**/*.spec.ts", "src/**/__tests__/**"]
 ```
 
-Commit TrackPixel: `72456e65215f063a2926a1015d378250e4ef2e32` (`fix: exclude worker tests from production build`). O push deve servir também como primeiro teste real de auto-deploy via webhook do Coolify.
+## Regra de branches do TrackPixel
+
+Fluxo obrigatório a partir deste ponto:
+
+```text
+develop -> homolog -> main
+```
+
+Correções de código nunca devem ser commitadas diretamente em `homolog` ou `main`. Toda correção nasce em `develop` e é promovida por merge.
+
+Durante o debugging do primeiro deploy, algumas correções haviam sido feitas diretamente em `homolog`, deixando `develop` para trás. O histórico foi normalizado em 2026-08-14 assim:
+
+1. a correção do `tsconfig` foi aplicada também em `develop` no commit `000086fa12aa086d6d2bd129f6130216d6ce21a9`;
+2. PR #4 trouxe as correções que existiam somente em `homolog` de volta para `develop`;
+3. PR #5 promoveu `develop` para `homolog`, restaurando a direção correta do fluxo;
+4. `homolog` passou a apontar para o merge `994a14a1f798d33528be53d5d05652921f75b24e`.
+
+Esse merge em `homolog` deve ser usado como teste de auto-deploy via webhook do Coolify.
 
 ## Regra aprendida
 
@@ -139,11 +156,11 @@ Assim falhas retornam ao prompt e não encerram a sessão Termius.
 
 ## Próximos passos
 
-1. Confirmar que o commit `72456e6...` disparou auto-deploy no Coolify sem ação manual.
+1. Confirmar que o merge `994a14a...` em `homolog` disparou auto-deploy no Coolify sem ação manual.
 2. Validar o novo deployment até `success`.
 3. Validar containers, migrations e health checks.
 4. Manter o Nginx atual responsável por 80/443 com proxy Coolify em `Custom` e apontá-lo para as portas de homolog.
 5. Configurar endpoint HTTPS definitivo do Coolify/webhook antes de fechar as portas temporárias 8000/6001/6002.
-6. Repetir para produção (`main`).
+6. Repetir para produção (`main`) sempre promovendo a partir de `homolog`.
 7. Transferir o repositório para a organização e validar novamente.
 8. Só então desativar/remover VPS Deployer, webhook/App antigos e infraestrutura transitória.
