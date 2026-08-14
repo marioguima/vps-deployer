@@ -37,6 +37,25 @@ then
   exit 2
 fi
 
+# Literal IPv4/IPv6 addresses are not valid SNI HostName values. If this VPS
+# already has a TLS default_server that rejects handshakes, an HTTPS request
+# to the raw IP will hit that server before Nginx can route by HTTP Host.
+# Do not silently replace an existing security default on a multi-site VPS.
+NGINX_DUMP="$(nginx -T 2>&1)"
+if grep -Eq 'listen[[:space:]].*443.*default_server' <<<"$NGINX_DUMP" \
+   && grep -Eq 'ssl_reject_handshake[[:space:]]+on' <<<"$NGINX_DUMP"; then
+  echo "Detected an existing :443 default_server with ssl_reject_handshake on." >&2
+  echo "Raw-IP HTTPS cannot rely on SNI, so that default server may reject the" >&2
+  echo "handshake before the vps-deployer IP server is selected." >&2
+  echo >&2
+  echo "No Nginx/TLS changes were made." >&2
+  echo "Inspect the existing default server with:" >&2
+  echo "  nginx -T 2>&1 | grep -nE 'listen .*443|default_server|ssl_reject_handshake|server_name'" >&2
+  echo >&2
+  echo "Follow docs/TROUBLESHOOTING.md for the safe multi-site VPS procedure." >&2
+  exit 3
+fi
+
 install -d -m 0755 /var/www/vps-deployer-acme
 BOOTSTRAP=/etc/nginx/sites-available/vps-deployer-ip.conf
 cat > "$BOOTSTRAP" <<EOF
