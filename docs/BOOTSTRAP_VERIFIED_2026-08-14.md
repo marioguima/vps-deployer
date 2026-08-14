@@ -61,13 +61,17 @@ Resultado observado:
 - o Certbot informou que configurou renovação automática;
 - o script concluiu e publicou os endpoints esperados `https://136.248.109.197/github` e `https://136.248.109.197/health`.
 
-O script também exibiu:
+## Renovação automática validada
+
+A inspeção de timers mostrou:
 
 ```text
-WARNING: no Certbot renewal timer detected. Configure automatic renewal before relying on IP TLS.
+snap.certbot.renew.timer
 ```
 
-Essa divergência entre a mensagem do Certbot e a detecção do script deve ser validada antes de considerar o bootstrap encerrado.
+com próxima execução agendada. Portanto, a instalação Snap possui renovação automática ativa.
+
+Também permaneceu visível um `certbot.timer` antigo da instalação APT, sem próxima execução agendada. Esse timer legado deve ser tratado como resíduo e removido/desabilitado somente depois de confirmar sua origem; ele não substitui o timer `snap.certbot.renew.timer`.
 
 ## Falha no primeiro teste HTTPS por IP
 
@@ -83,27 +87,55 @@ retornou:
 curl: (35) OpenSSL/3.0.13: error:0A000458:SSL routines::tlsv1 unrecognized name
 ```
 
-O certificado já estava emitido; portanto essa falha ocorre durante a seleção do virtual host TLS no Nginx, antes de a requisição HTTP chegar ao `vps-deployer`.
+O certificado já estava emitido; portanto a falha ocorria durante a seleção do virtual host TLS no Nginx, antes de a requisição HTTP chegar ao `vps-deployer`.
 
-Em uma VPS que hospeda vários sites HTTPS, conexões feitas por IP literal não devem depender de SNI para selecionar o bloco correto. RFC 6066 não permite IPv4/IPv6 literal no campo `HostName` do SNI, e a própria documentação do Nginx recomenda não confiar nisso. É necessário verificar o `default_server` de `:443` e qualquer uso de `ssl_reject_handshake` antes de alterar a configuração existente.
+## Causa confirmada no Nginx
 
-Diagnóstico a ser executado antes de qualquer correção:
+A inspeção com `nginx -T` confirmou dois blocos relevantes:
 
-```bash
-sudo nginx -T 2>&1 | grep -nE 'listen .*443|default_server|ssl_reject_handshake|server_name'
-sudo ss -ltnp | grep ':443'
+```text
+listen 443 ssl default_server;
+listen [::]:443 ssl default_server;
+server_name _;
+ssl_reject_handshake on;
 ```
 
-Não substituir ou remover o `default_server` existente às cegas, porque esta VPS já hospeda outros domínios HTTPS.
+E, separadamente, o bloco criado para o deployer:
+
+```text
+server_name 136.248.109.197;
+listen 443 ssl;
+listen [::]:443 ssl;
+```
+
+Isso confirma a causa: requisições TLS para um IP literal não podem depender de SNI para selecionar o bloco `server_name 136.248.109.197`. IPv4/IPv6 literal não é permitido como `HostName` do SNI pelo RFC 6066. A conexão começa no `default_server` de `:443`, que nesta VPS está configurado para rejeitar o handshake com `ssl_reject_handshake on`.
+
+O comportamento é consistente com a documentação do Nginx: `ssl_reject_handshake on` rejeita o handshake do bloco, e a seleção inicial do virtual server TLS ocorre no contexto do servidor default, podendo mudar por SNI quando há um nome DNS válido.
+
+## Regra para VPS multi-site
+
+Em uma VPS que já tenha um `default_server` TLS de segurança, o instalador do VPS Deployer **não deve substituí-lo automaticamente**. Primeiro é necessário localizar o arquivo que contém o `ssl_reject_handshake on` e decidir conscientemente como integrar o endpoint do IP.
+
+O script `setup-ip-tls.sh` foi endurecido para detectar a combinação de `:443 default_server` + `ssl_reject_handshake on` antes de emitir/configurar TLS em instalações futuras. Ele agora para e pede inspeção manual, evitando que o problema só apareça após a emissão do certificado.
+
+Para localizar o arquivo real na VPS:
+
+```bash
+sudo grep -R -n -B 8 -A 8 'ssl_reject_handshake on' \
+  /etc/nginx/sites-available /etc/nginx/conf.d 2>/dev/null
+```
+
+Não alterar ou remover o bloco default às cegas: esta VPS hospeda vários domínios HTTPS.
 
 ## Próxima etapa
 
-Confirmar qual bloco Nginx recebe conexões TLS sem SNI em `:443`, corrigir a seleção do certificado para acesso por IP sem interromper os domínios existentes e validar:
+Localizar o arquivo do `default_server` TLS atual e adaptar esse bloco de forma que conexões sem SNI para o IP público recebam o certificado `vps-deployer-ip` e exponham somente `/github` e `/health`, preservando o comportamento dos domínios existentes.
+
+Depois validar:
 
 ```bash
+sudo nginx -t
 curl https://136.248.109.197/health
 ```
-
-Depois, validar separadamente o mecanismo de renovação automática do certificado curto de IP.
 
 Este arquivo é um registro de validação. Para repetir o procedimento em outra VPS, use `docs/BOOTSTRAP.md` como roteiro principal e `docs/TROUBLESHOOTING.md` para os casos já encontrados.
