@@ -13,6 +13,73 @@ main    -> ambiente production
 
 Isso não significa que homologação sempre usa `/hml` nem que sempre usa subdomínio.
 
+## Identidade local estável do projeto
+
+A localização do repositório no GitHub não deve ser usada como identidade física permanente dentro da VPS.
+
+Um repositório pode:
+
+- ser transferido de uma conta pessoal para uma organização;
+- trocar de organização;
+- ser renomeado;
+- ter o mesmo nome de outro repositório pertencente a outro owner.
+
+Por isso, durante o onboarding, o VPS Deployer gera um `project_id` local e imutável no formato:
+
+```text
+<nome-do-repositorio>--<12-hex-gerados>
+```
+
+Exemplo:
+
+```text
+trackpixel--7d2c9a41e6bf
+```
+
+O prefixo deixa o diretório reconhecível para humanos. O sufixo aleatório de 12 caracteres hexadecimais fornece a unicidade.
+
+A geração recomendada é equivalente a:
+
+```python
+secrets.token_hex(6)
+```
+
+O `project_id` é gerado pela infraestrutura e armazenado na allowlist local `/etc/vps-deployer/projects.json`.
+
+Ele **não deve vir do webhook nem do manifesto versionado no repositório**, porque um repositório não pode escolher ou sobrescrever a identidade física de outro projeto na VPS.
+
+Estrutura esperada:
+
+```text
+/var/lib/vps-deployer/workspaces/
+└── trackpixel--7d2c9a41e6bf/
+    ├── homolog/
+    └── production/
+```
+
+Se o repositório for transferido:
+
+```text
+marioguima/trackpixel
+        ↓
+empresa/trackpixel
+```
+
+muda apenas a localização autorizada no GitHub:
+
+```text
+repository = empresa/trackpixel
+```
+
+O `project_id`, workspace, ambientes e dados persistentes continuam os mesmos.
+
+Dois repositórios com o mesmo nome continuam seguros:
+
+```text
+empresa-a/trackpixel -> trackpixel--7d2c9a41e6bf
+empresa-b/trackpixel -> trackpixel--91fa2c803b47
+```
+
 ## Modelo técnico único: `host + base_path`
 
 Os três casos que usamos no dia a dia podem ser representados pela mesma estrutura:
@@ -48,6 +115,8 @@ Referência de formato neste repositório:
 ```text
 config/project-manifest.example.json
 ```
+
+O `project_id` não pertence a este arquivo. Ele é configuração local da infraestrutura.
 
 ## Exemplo: landing pages / páginas de venda
 
@@ -188,7 +257,7 @@ GitHub App
   -> pode ler o repositório
 
 /etc/vps-deployer/projects.json
-  -> autoriza repository + branch + adaptador local
+  -> autoriza project_id + repository + branch + adaptador local
 ```
 
 Portanto:
