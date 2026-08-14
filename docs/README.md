@@ -7,6 +7,8 @@ Use este índice para reconstruir ou entender o VPS Deployer sem depender de mem
 - [BOOTSTRAP.md](BOOTSTRAP.md) — instalação/reconstrução da VPS.
 - [BOOTSTRAP_VERIFIED_2026-08-14.md](BOOTSTRAP_VERIFIED_2026-08-14.md) — registro do primeiro bootstrap real validado.
 - [DEPLOY_ARCHITECTURE_FOR_BEGINNERS.md](DEPLOY_ARCHITECTURE_FOR_BEGINNERS.md) — explicação simples de webhook, GitHub App e SHA.
+- [DEPLOY_PIPELINE_CONTRACT.md](DEPLOY_PIPELINE_CONTRACT.md) — contrato da esteira: push em homolog/main deve concluir o deploy sem operação manual.
+- [PROJECT_MANIFEST.md](PROJECT_MANIFEST.md) — estratégia genérica de publicação usando `host + base_path` para raiz, `/hml` ou subdomínio.
 - [GITHUB_APP_SETUP.md](GITHUB_APP_SETUP.md) — criação, permissões, instalação e armazenamento da GitHub App.
 
 ## Operação e segurança
@@ -17,4 +19,5 @@ Use este índice para reconstruir ou entender o VPS Deployer sem depender de mem
 
 ## Validações de projetos
 
+- [GITHUB_APP_VALIDATION_2026-08-14.md](GITHUB_APP_VALIDATION_2026-08-14.md) — validação real de JWT, installation token e Git privado.
 - [TRACKPIXEL_SMOKE_TEST.md](TRACKPIXEL_SMOKE_TEST.md) — smoke test real do fluxo GitHub push -> webhook -> fila -> worker.
