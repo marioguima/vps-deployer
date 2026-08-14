@@ -65,6 +65,27 @@ private key da GitHub App
 
 Nunca registrar JWT, installation token ou conteúdo da private key neste repositório.
 
+## Validação dos helpers antes da instalação
+
+Na própria VPS, na branch `docs/bootstrap-tls-sni-2026-08-14`, foram executados:
+
+```bash
+python3 -m unittest discover -s tests -v
+bash -n scripts/*.sh examples/*.sh
+```
+
+Resultado real:
+
+```text
+Ran 10 tests
+OK
+OK: scripts bash válidos
+```
+
+Isso valida a suíte que cobre o helper da GitHub App e os testes existentes do receiver/fila antes de instalar os novos helpers em `/usr/local/bin`.
+
+A próxima validação é instalar essa versão e executar `vps-deployer-checkout` em uma área de teste sob `/var/lib/vps-deployer`, verificando que o `HEAD` termina exatamente no SHA completo de `homolog`, sem iniciar Docker ou alterar Nginx.
+
 ## Erro 1 — `Integration not found`
 
 Durante o primeiro teste foi configurado por engano:
