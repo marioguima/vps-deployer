@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+# sudo commonly resets PATH to secure_path. Docker on this VPS may be installed
+# through snap, so make the adapter independent of the caller's inherited PATH.
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin"
+
 PROJECT_ID="${1:-}"
 ENVIRONMENT="${2:-}"
 
