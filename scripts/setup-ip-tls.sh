@@ -17,12 +17,26 @@ import ipaddress, sys
 ipaddress.ip_address(sys.argv[1])
 PY
 CERTBOT_VERSION="$(certbot --version 2>&1 | awk '{print $2}')"
-python3 - "$CERTBOT_VERSION" <<'PY'
+if ! python3 - "$CERTBOT_VERSION" <<'PY'
 import re, sys
 m = re.match(r'^(\d+)\.(\d+)', sys.argv[1])
-if not m or (int(m.group(1)), int(m.group(2))) < (5, 4):
-    raise SystemExit("certbot >= 5.4 is required for webroot IP certificates")
+raise SystemExit(0 if m and (int(m.group(1)), int(m.group(2))) >= (5, 4) else 1)
 PY
+then
+  echo "Detected Certbot $CERTBOT_VERSION at $(command -v certbot)" >&2
+  echo "certbot >= 5.4 is required for webroot IP certificates" >&2
+  echo >&2
+  echo "No Nginx/TLS changes were made." >&2
+  echo "Diagnose the current installation with:" >&2
+  echo "  certbot --version" >&2
+  echo "  command -v certbot" >&2
+  echo "  snap list certbot 2>/dev/null || true" >&2
+  echo "  dpkg -l | grep -E 'certbot|python3-certbot' || true" >&2
+  echo >&2
+  echo "Then follow docs/TROUBLESHOOTING.md#certbot-antigo-para-certificado-de-ip" >&2
+  exit 2
+fi
+
 install -d -m 0755 /var/www/vps-deployer-acme
 BOOTSTRAP=/etc/nginx/sites-available/vps-deployer-ip.conf
 cat > "$BOOTSTRAP" <<EOF
