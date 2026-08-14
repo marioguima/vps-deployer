@@ -12,9 +12,12 @@ server {
     }
 }
 
+# Raw-IP HTTPS cannot rely on SNI: RFC 6066 does not allow literal IPv4/IPv6
+# addresses in the SNI HostName field. Therefore this block must be the TLS
+# default server on a VPS that exposes the webhook by raw public IP.
 server {
-    listen 443 ssl;
-    listen [::]:443 ssl;
+    listen 443 ssl default_server;
+    listen [::]:443 ssl default_server;
     server_name __PUBLIC_IP__;
 
     ssl_certificate /etc/letsencrypt/live/vps-deployer-ip/fullchain.pem;
