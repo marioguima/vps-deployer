@@ -121,7 +121,17 @@ sudo certbot renew --dry-run
 
 Se a renovação já falhar **antes** da migração, registre essa falha separadamente; não atribua automaticamente o problema ao upgrade.
 
-### 4. Migre do pacote APT para o Snap oficial
+### 4. Simule a remoção dos pacotes APT
+
+Antes de remover qualquer pacote, peça ao APT apenas uma simulação:
+
+```bash
+sudo apt-get -s remove certbot python3-certbot python3-certbot-nginx
+```
+
+Leia a seção `The following packages will be REMOVED`. O esperado é que a remoção fique restrita ao Certbot antigo e plugins/dependências relacionadas. Se aparecer Nginx, Docker, aplicações, bibliotecas críticas não relacionadas ou uma lista inesperadamente grande, **pare e investigue antes de executar a remoção real**.
+
+### 5. Migre do pacote APT para o Snap oficial
 
 O projeto Certbot recomenda Snap para a maioria dos usuários Linux e orienta remover os pacotes do sistema para evitar que o comando `certbot` continue chamando a versão antiga.
 
@@ -133,7 +143,7 @@ snap version
 
 Se `snap` não existir, instale/configure `snapd` conforme a documentação oficial da sua distribuição antes de continuar.
 
-Com backup e linha de base concluídos:
+Com backup, linha de base e simulação concluídos:
 
 ```bash
 sudo apt-get remove certbot python3-certbot python3-certbot-nginx
@@ -149,7 +159,7 @@ ls -l /usr/local/bin/certbot
 
 Não use `rm -f` cegamente nesse caminho.
 
-### 5. Valide imediatamente após a migração
+### 6. Valide imediatamente após a migração
 
 O executável usado deve ser o novo Certbot e a versão precisa ser 5.4 ou superior:
 
@@ -173,7 +183,7 @@ sudo certbot renew --dry-run
 
 Só considere a migração concluída se os certificados existentes continuarem listados e o teste de renovação estiver saudável, ou se qualquer falha observada for a mesma que já existia na linha de base.
 
-### 6. Confira renovação automática do Snap
+### 7. Confira renovação automática do Snap
 
 ```bash
 systemctl list-timers --all | grep -i certbot || true
@@ -182,7 +192,7 @@ systemctl list-timers --all | grep -i snap.certbot || true
 
 Certificados de IP do Let's Encrypt usam o perfil `shortlived`, portanto a renovação automática não é opcional.
 
-### 7. Atualize o VPS Deployer e tente o IP TLS novamente
+### 8. Atualize o VPS Deployer e tente o IP TLS novamente
 
 ```bash
 cd ~/vps-deployer
