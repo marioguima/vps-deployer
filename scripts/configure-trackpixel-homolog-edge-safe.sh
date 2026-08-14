@@ -35,15 +35,19 @@ log "PREFLIGHT - TRACKPIXEL ONLY"
 systemctl is-active --quiet nginx || fail "Nginx is not active"
 nginx -t
 
-# Fail before touching Nginx if Coolify has not published TrackPixel locally yet.
+# Fail before touching Nginx if Coolify has not published the complete TrackPixel homolog locally yet.
 api_body="$(curl -fsS --connect-timeout 3 --max-time 5 "http://$API_UPSTREAM/health" 2>/dev/null || true)"
 [[ "$api_body" == *"ok"* ]] || fail "TrackPixel API is not ready on http://$API_UPSTREAM/health. No Nginx changes were made."
 
 pixel_body="$(curl -fsS --connect-timeout 3 --max-time 5 "http://$PIXEL_UPSTREAM/health" 2>/dev/null || true)"
 [[ "$pixel_body" == *"ok"* ]] || fail "TrackPixel pixel service is not ready on http://$PIXEL_UPSTREAM/health. No Nginx changes were made."
 
+pixel_js_code="$(curl --connect-timeout 3 --max-time 5 -sS -o /dev/null -w '%{http_code}' "http://$PIXEL_UPSTREAM/pixel.js" 2>/dev/null || true)"
+[[ "$pixel_js_code" == "200" ]] || fail "TrackPixel pixel.js is not ready on http://$PIXEL_UPSTREAM/pixel.js (HTTP ${pixel_js_code:-000}). No Nginx changes were made."
+
 echo "api_local=ok"
 echo "pixel_local=ok"
+echo "pixel_js_local=200"
 
 resolve_cf() {
   curl -fsS "https://cloudflare-dns.com/dns-query?name=$1&type=A" -H 'accept: application/dns-json' |
@@ -204,7 +208,6 @@ track_body="$(curl --connect-timeout 5 --max-time 15 --resolve "$TRACK_DOMAIN:44
 pixel_code="$(curl --connect-timeout 5 --max-time 15 --resolve "$PIXEL_DOMAIN:443:127.0.0.1" -sS -o /dev/null -w '%{http_code}' "https://$PIXEL_DOMAIN/pixel.js")"
 [[ "$pixel_code" == "200" ]] || fail "TrackPixel pixel.js HTTPS validation failed: HTTP $pixel_code"
 
-# Confirm existing enabled sites are still present; this script never removes them.
 echo "nginx=active"
 echo "track=https://$TRACK_DOMAIN/health"
 echo "pixel=https://$PIXEL_DOMAIN/pixel.js"
