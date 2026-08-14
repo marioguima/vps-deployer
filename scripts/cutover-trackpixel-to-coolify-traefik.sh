@@ -41,9 +41,17 @@ legacy_domains=(
 log() { printf '\n===== %s =====\n' "$*"; }
 fail() { echo "ERROR: $*" >&2; return 1; }
 
+get_proxy_type() {
+  docker exec coolify php artisan tinker --execute='$s=App\Models\Server::find(0); if (!$s) { throw new Exception("Coolify server id 0 not found"); } echo $s->proxyType();' 2>/dev/null | tr -d '\r\n[:space:]'
+}
+
 set_proxy_type() {
   local type="$1"
-  docker exec coolify php artisan tinker --execute="\$s=App\\Models\\Server::find(0); \$s->changeProxy('${type}', false);" >/dev/null
+  docker exec -e TP_PROXY_TYPE="$type" coolify php artisan tinker --execute='$s=App\Models\Server::find(0); if (!$s) { throw new Exception("Coolify server id 0 not found"); } $s->changeProxy(getenv("TP_PROXY_TYPE"), false);' >/dev/null
+}
+
+set_proxy_none_without_start() {
+  docker exec coolify php artisan tinker --execute='$s=App\Models\Server::find(0); if ($s) { $s->proxy->set("type", "NONE"); $s->proxy->set("status", "exited"); $s->save(); }' >/dev/null
 }
 
 restore_nginx() {
@@ -62,7 +70,7 @@ rollback() {
   echo
   echo "!!! CUTOVER FAILED - AUTOMATIC ROLLBACK !!!" >&2
   docker rm -f coolify-proxy >/dev/null 2>&1 || true
-  docker exec coolify php artisan tinker --execute='\$s=App\\Models\\Server::find(0); if (\$s) { \$s->proxy->set("type", "NONE"); \$s->proxy->set("status", "exited"); \$s->save(); }' >/dev/null 2>&1 || true
+  set_proxy_none_without_start >/dev/null 2>&1 || true
   restore_nginx || true
   nginx -t >/dev/null 2>&1 || true
   systemctl enable nginx >/dev/null 2>&1 || true
@@ -83,9 +91,9 @@ docker network inspect "$TRACKPIXEL_UUID" >/dev/null 2>&1 || fail "TrackPixel Co
 systemctl is-active --quiet nginx || fail "Nginx must be active before cutover"
 nginx -t
 
-current_proxy="$(docker exec coolify php artisan tinker --execute='echo App\\Models\\Server::find(0)->proxyType();' 2>/dev/null | tr -d '\r\n[:space:]' || true)"
+current_proxy="$(get_proxy_type || true)"
 echo "coolify_proxy_type=${current_proxy:-unknown}"
-[[ "${current_proxy^^}" == "NONE" ]] || fail "Expected Coolify proxy type NONE before cutover"
+[[ "${current_proxy^^}" == "NONE" ]] || fail "Expected Coolify proxy type NONE before cutover; got ${current_proxy:-unknown}"
 
 for port in 80 443; do
   ss -ltnp "sport = :$port" | grep -q nginx || fail "Nginx is not the current owner of TCP $port"
