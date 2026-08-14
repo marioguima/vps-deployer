@@ -35,6 +35,7 @@ install -d -m 0755 /opt/vps-deployer "$APP_DIR" "$SCRIPT_DIR"
 install -d -o vps-deployer -g vps-deployer -m 0750 "$STATE_DIR" "$LOG_DIR"
 install -d -o root -g vps-deployer -m 0750 "$CONFIG_DIR"
 install -m 0755 "$ROOT_DIR/src/vps_deployer.py" "$APP_DIR/vps_deployer.py"
+install -m 0755 "$ROOT_DIR/scripts/bootstrap-host.sh" /usr/local/bin/vps-deployer-bootstrap-host
 install -m 0755 "$ROOT_DIR/scripts/github_app_git.py" /usr/local/bin/vps-deployer-git
 install -m 0755 "$ROOT_DIR/scripts/checkout.sh" /usr/local/bin/vps-deployer-checkout
 install -m 0755 "$ROOT_DIR/scripts/onboard_trackpixel.py" /usr/local/bin/vps-deployer-onboard-trackpixel
@@ -78,6 +79,7 @@ echo "  1. sudo vps-deployer-doctor"
 echo "  2. sudo systemctl enable --now vps-deployer"
 echo "  3. sudo systemctl status vps-deployer"
 echo
+echo "Host prerequisites can be checked/installed with sudo vps-deployer-bootstrap-host."
 echo "Private GitHub repositories use /usr/local/bin/vps-deployer-git and vps-deployer-checkout."
 echo "TrackPixel can be registered with sudo vps-deployer-onboard-trackpixel."
 echo "For recommended HTTPS on the public IP, run scripts/setup-ip-tls.sh after configuring the service."
