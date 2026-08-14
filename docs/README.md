@@ -21,3 +21,4 @@ Use este índice para reconstruir ou entender o VPS Deployer sem depender de mem
 
 - [GITHUB_APP_VALIDATION_2026-08-14.md](GITHUB_APP_VALIDATION_2026-08-14.md) — validação real de JWT, installation token e Git privado.
 - [TRACKPIXEL_SMOKE_TEST.md](TRACKPIXEL_SMOKE_TEST.md) — smoke test real do fluxo GitHub push -> webhook -> fila -> worker.
+- [TRACKPIXEL_AUTOMATED_PIPELINE.md](TRACKPIXEL_AUTOMATED_PIPELINE.md) — onboarding, primeiro deploy real e transferência para organização preservando o workspace.
