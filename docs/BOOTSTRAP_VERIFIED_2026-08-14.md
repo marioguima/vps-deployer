@@ -90,7 +90,7 @@ server {
 
 `nginx -t` passou e o serviço foi recarregado normalmente.
 
-## Diagnóstico do falso erro TLS
+## Diagnóstico do primeiro erro TLS
 
 Um primeiro teste simples:
 
@@ -104,7 +104,7 @@ retornou:
 curl: (35) OpenSSL/3.0.13: error:0A000458:SSL routines::tlsv1 unrecognized name
 ```
 
-Isso inicialmente levou à investigação de SNI/default server. Os testes seguintes mostraram que o Nginx e o certificado estavam corretos.
+Isso levou à investigação de SNI/default server. Os testes seguintes mostraram que o Nginx e o certificado estavam corretos.
 
 ### TLS sem SNI pelo loopback
 
@@ -136,41 +136,67 @@ Também concluiu TLS 1.3 com `Verification: OK`.
 
 ### Acesso HTTP direto ignorando proxies
 
-O teste decisivo foi:
+O teste:
 
 ```bash
 curl --noproxy '*' -vk https://136.248.109.197/health
 ```
 
-Resultado:
+retornou:
 
 ```text
 HTTP/1.1 200 OK
 {"ok":true,"service":"vps-deployer","time":"..."}
 ```
 
-Portanto, a cadeia abaixo foi validada com sucesso:
+A validação final, sem `-k`, também passou:
+
+```bash
+curl --noproxy '*' https://136.248.109.197/health
+```
+
+Resultado real:
+
+```json
+{"ok":true,"service":"vps-deployer","time":"2026-08-14T09:26:09+00:00"}
+```
+
+Portanto, a cadeia abaixo está validada com certificado confiável e resposta HTTP 200:
 
 ```text
 cliente -> IP público:443 -> TLS -> Nginx -> 127.0.0.1:9100 -> vps-deployer
 ```
 
-A diferença entre o `curl` que falhou e o que funcionou foi o bypass explícito de proxy com `--noproxy '*'`. Isso indica que o erro inicial vinha de um proxy/caminho intermediário configurado para o `curl`, e não do certificado ou do endpoint do VPS Deployer.
+### Proxy de ambiente não encontrado
 
-Para confirmar a origem do proxy em outra instalação, use:
+Foi verificado:
 
 ```bash
 env | grep -iE '^(http|https|all|no)_proxy=' || true
 ```
 
-Também verifique `~/.curlrc` e `/etc/curlrc` caso não existam variáveis de ambiente.
+Nenhuma variável `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY` ou `NO_PROXY` estava definida.
 
-> O `-k` foi usado apenas durante diagnóstico para separar handshake/conectividade de validação de CA. O teste final de produção deve funcionar sem `-k`.
+Consequentemente, **não registrar como causa confirmada que o primeiro erro vinha de variável de proxy**. O fato de `--noproxy '*'` ter funcionado mostra apenas que o acesso direto está saudável. Se o `curl` simples voltar a falhar em uma instalação futura, investigar também:
 
-Teste final recomendado:
+```text
+~/.curlrc
+/etc/curlrc
+configuração local do curl
+caminho/intermediário de rede
+```
 
-```bash
-curl --noproxy '*' https://136.248.109.197/health
+O primeiro erro pode ainda ter sido transitório durante a mudança/reload da configuração Nginx. A causa exata daquele primeiro `curl` não foi comprovada.
+
+> O `-k` foi usado apenas durante diagnóstico. O teste final de produção passou sem `-k`.
+
+## Estado final desta etapa
+
+HTTPS por IP está concluído e validado. Os endpoints públicos estão prontos para a etapa de integração com GitHub:
+
+```text
+https://136.248.109.197/health
+https://136.248.109.197/github
 ```
 
 ## Regra para instalações futuras
@@ -180,7 +206,8 @@ curl --noproxy '*' https://136.248.109.197/health
 3. validar Nginx com `nginx -t`;
 4. testar TLS pelo IP com `openssl s_client -noservername`;
 5. testar HTTP direto com `curl --noproxy '*'` antes de alterar novamente o Nginx;
-6. se o curl normal falhar mas `--noproxy '*'` funcionar, investigar proxy de ambiente ou configuração do curl;
-7. somente depois configurar os webhooks do GitHub.
+6. confirmar o certificado com o mesmo comando sem `-k`;
+7. se o curl normal falhar mas `--noproxy '*'` funcionar, investigar ambiente/configuração do curl sem assumir a causa;
+8. somente depois configurar os webhooks do GitHub.
 
 Este arquivo é um registro de validação. Para repetir o procedimento em outra VPS, use `docs/BOOTSTRAP.md` como roteiro principal e `docs/TROUBLESHOOTING.md` para os casos já encontrados.
