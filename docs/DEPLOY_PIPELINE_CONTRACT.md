@@ -23,7 +23,7 @@ VPS Deployer
    +--> busca exatamente o SHA recebido pelo webhook
    +--> executa o adaptador de deploy autorizado
    +--> atualiza containers/arquivos
-   +--> atualiza Nginx quando necessário
+   +--> publica de acordo com host + base_path do ambiente
    +--> valida health check
    +--> registra sucesso/falha no histórico
 ```
@@ -43,62 +43,92 @@ Os comandos manuais usados durante o bootstrap existem apenas para instalar e va
 
 ---
 
-## Contrato de branches
-
-### `homolog`
-
-Um push em:
+## Contrato de branches e ambientes
 
 ```text
-homolog
+branch homolog -> ambiente homolog
+branch main    -> ambiente production
 ```
 
-representa deploy automático do ambiente de homologação.
-
-Padrão desejado para projetos web simples:
-
-```text
-https://DOMINIO/hml
-```
-
-### `main`
-
-Um push em:
-
-```text
-main
-```
-
-representa deploy automático de produção.
-
-Padrão desejado:
-
-```text
-https://DOMINIO/
-```
+A branch identifica o ambiente. **A branch não define a URL pública.**
 
 A mesma versão identificada pelo SHA recebido no webhook deve ser a versão efetivamente implantada. O deploy não deve simplesmente pegar "o último commit disponível" depois que o job começou.
 
 ---
 
-## Domínio e configuração do projeto
+## Como um ambiente é publicado
 
-O domínio e outras informações **não secretas** de deploy devem ser declarativas e versionadas junto ao projeto sempre que possível.
+A forma pública é configuração do projeto.
+
+Internamente qualquer caso é normalizado como:
+
+```text
+host + base_path
+```
+
+Isso cobre os três modos que usamos conceitualmente:
+
+```text
+produção na raiz:
+  host=example.com
+  base_path=/
+
+homolog por path:
+  host=example.com
+  base_path=/hml
+
+homolog por hostname/subdomínio:
+  host=homolog.example.com
+  base_path=/
+```
+
+Portanto, `/hml` **não é regra universal** e subdomínio também não.
+
+### Páginas de venda / sites simples
+
+Padrão recomendado quando o projeto suporta path prefix:
+
+```text
+homolog    -> https://firaz.com.br/hml/nome-da-pagina
+production -> https://firaz.com.br/nome-da-pagina
+```
+
+### Aplicações, APIs e serviços
+
+Padrão recomendado quando é melhor isolar a origem:
+
+```text
+homolog    -> https://api-homolog.example.com/
+production -> https://api.example.com/
+```
+
+TrackPixel permanece nesse segundo grupo.
+
+Consulte `docs/PROJECT_MANIFEST.md`.
+
+---
+
+## Manifesto versionado do projeto
+
+Domínio, base path e outras informações **não secretas** devem ser declarativas e versionadas junto ao projeto sempre que possível.
+
+Formato planejado:
+
+```text
+.vps-deployer.json
+```
 
 Exemplos de informação não secreta:
 
 ```text
-domain
-deployment type
+branch
+host
+base_path
 health-check path
-compose files
-public path de homolog
-public path de production
+configuração pública de build/deploy
 ```
 
-Segredos não pertencem ao repositório.
-
-Exemplos:
+Segredos não pertencem ao repositório:
 
 ```text
 senhas
@@ -111,8 +141,6 @@ credenciais de banco
 
 Esses valores permanecem protegidos na VPS.
 
-O formato definitivo do manifesto do projeto será implementado de forma declarativa e restrita. Um repositório não deve poder transformar um campo vindo do webhook em comando shell arbitrário.
-
 ---
 
 ## Segurança: autorização continua local
@@ -122,16 +150,19 @@ A GitHub App pode ter permissão para **ler** muitos repositórios de uma organi
 A autorização continua sendo explícita no VPS Deployer:
 
 ```text
-repository + branch -> ambiente/adaptador autorizado
+repository + branch -> adaptador autorizado
 ```
 
-O `/etc/vps-deployer/projects.json` (ou sua evolução compatível) é a allowlist local.
+O `/etc/vps-deployer/projects.json` é a allowlist local.
 
 Portanto:
 
 ```text
 GitHub App access != deploy authorization
+manifesto no repo   != deploy authorization
 ```
+
+O payload do webhook nunca fornece comando shell livre.
 
 ---
 
@@ -167,21 +198,48 @@ identificar a versão exata
 
 O deploy deve fazer checkout do SHA completo recebido no webhook.
 
-### Helper de autenticação
+### `vps-deployer-git`
 
-O helper de GitHub App será infraestrutura interna. Ele não é uma etapa que o operador executa a cada deploy.
+Helper interno instalado em:
 
-O worker chamará automaticamente esse helper para:
+```text
+/usr/local/bin/vps-deployer-git
+```
 
-1. gerar JWT;
-2. localizar a instalação que possui acesso ao repositório;
-3. emitir installation access token temporário;
-4. autenticar Git via HTTPS sem persistir o token;
-5. descartar a credencial temporária após a operação.
+Ele:
+
+1. lê Client ID e caminho da private key;
+2. gera JWT curto;
+3. localiza a instalação da App para `owner/repo`;
+4. emite installation access token temporário;
+5. usa `GIT_ASKPASS` para autenticar Git;
+6. não coloca o token na URL do remote nem na linha de comando.
+
+O operador não executa esse helper no fluxo diário.
+
+### `vps-deployer-checkout`
+
+Helper interno instalado em:
+
+```text
+/usr/local/bin/vps-deployer-checkout
+```
+
+Ele recebe do worker:
+
+```text
+DEPLOY_REPOSITORY
+DEPLOY_BRANCH
+DEPLOY_SHA
+```
+
+Inicializa/atualiza um working tree limpo, faz fetch autenticado e termina somente se `HEAD` for exatamente o SHA completo recebido pelo webhook.
+
+Ele também define seu próprio diretório de trabalho e não depende do CWD herdado de `/home/ubuntu`.
 
 ### Adaptador de projeto
 
-Cada projeto pode precisar de uma estratégia de deploy diferente, por exemplo:
+Cada projeto pode precisar de uma estratégia diferente:
 
 ```text
 arquivos estáticos
@@ -191,25 +249,23 @@ serviço systemd
 monorepo
 ```
 
-O VPS Deployer seleciona um adaptador previamente autorizado; o payload do webhook nunca fornece um comando shell livre.
+O VPS Deployer seleciona um adaptador previamente autorizado. O adaptador interpreta o manifesto versionado e somente aplica formas de publicação que ele suporta.
 
 ---
 
 ## TrackPixel e o workflow legado
 
-O workflow existente do TrackPixel em `.github/workflows/deploy.yml` já implementa a ideia de dois ambientes por branch:
+O workflow existente do TrackPixel já implementa dois ambientes por branch:
 
 ```text
 main    -> production
 homolog -> homolog
 ```
 
-Porém o roteamento atual do TrackPixel **não usa `/hml`**.
-
-Hoje ele usa:
+O roteamento atual é por hostnames separados:
 
 ```text
-main:
+production:
   https://track.intellifyads.com
   https://pixel.intellifyads.com
 
@@ -218,29 +274,29 @@ homolog:
   https://pixel-homolog.intellifyads.com
 ```
 
-Além disso, o workflow atualmente:
+O novo VPS Deployer deve preservar esse desenho inicialmente.
+
+O workflow legado:
 
 1. faz checkout no runner do GitHub;
-2. envia o código para a VPS por SCP;
-3. na própria VPS executa `docker compose build`;
+2. envia código por SCP;
+3. na VPS executa `docker compose build`;
 4. sobe Postgres e Redis;
 5. executa migrations;
 6. sobe API, worker e pixel;
 7. configura Nginx/TLS;
 8. executa health checks.
 
-O novo VPS Deployer deve preservar as partes úteis do deploy e substituir somente o mecanismo de entrega/orquestração:
+A substituição arquitetural é:
 
 ```text
 GitHub Actions checkout + SCP + SSH
               |
               v
-webhook + GitHub App + git fetch do SHA na própria VPS
+webhook + GitHub App + checkout do SHA na própria VPS
 ```
 
-O TrackPixel é um exemplo de projeto que possui dois hostnames públicos e pode precisar de um adaptador específico. Antes de migrar esse projeto de subdomínios separados para `/hml`, é necessário validar compatibilidade de API, SDK, URLs públicas e regras de Nginx com path prefix.
-
-O padrão global `/hml` não deve ser aplicado cegamente a um projeto cuja arquitetura exija outro roteamento.
+Build, migrations, containers, Nginx e health checks continuam responsabilidade do adaptador TrackPixel.
 
 ---
 
@@ -252,7 +308,7 @@ Para um projeto já configurado:
 git push origin homolog
 ```
 
-é suficiente para iniciar e concluir o deploy de homologação.
+é suficiente para iniciar e concluir homologação.
 
 E:
 
@@ -260,9 +316,9 @@ E:
 git push origin main
 ```
 
-é suficiente para iniciar e concluir o deploy de produção.
+é suficiente para iniciar e concluir produção.
 
-Nenhuma outra ação operacional deve ser necessária em condições normais.
+O operador não escolhe `/hml`, hostname, token ou comando no momento do push. Isso já está configurado.
 
 ---
 
@@ -283,10 +339,14 @@ Estado em 2026-08-14:
 [OK] localizar instalação do TrackPixel
 [OK] emitir installation access token
 [OK] git ls-remote no TrackPixel privado
+[OK] helper permanente vps-deployer-git implementado
+[OK] helper de checkout exato do SHA implementado
+[OK] modelo host + base_path documentado
 
-[NEXT] helper permanente de autenticação GitHub App
-[NEXT] fetch/checkout seguro do SHA
+[NEXT] instalar a nova versão do VPS Deployer na VPS
+[NEXT] validar helper + checkout real na VPS
 [NEXT] adaptador de deploy TrackPixel
+[NEXT] manifesto do TrackPixel
 [NEXT] cadastrar homolog e main
 [NEXT] primeiro deploy real de homolog
 [NEXT] validar Nginx/TLS/health checks
