@@ -135,6 +135,43 @@ branch=vps-deployer-smoke
 SMOKE_TEST_OK
 ```
 
+### Resultado real do primeiro push
+
+O primeiro push real criou o job `1` e `vps-deployer-jobs` mostrou:
+
+```text
+ID      STATUS     REPOSITORY             BRANCH               SHA
+1       succeeded  marioguima/trackpixel  vps-deployer-smoke   b8202ec1ed17
+```
+
+O log completo do job confirmou os metadados recebidos e a execução do script local:
+
+```text
+[2026-08-14T10:10:41+00:00] job 1 command=["/opt/vps-deployer/project-scripts/trackpixel-smoke.sh"]
+smoke=trackpixel-webhook
+job_id=1
+delivery_id=67398004-97c8-11f1-875c-4059f11ffaf4
+repository=marioguima/trackpixel
+branch=vps-deployer-smoke
+sha=b8202ec1ed1796e9ae4ef7ffa61202c8c3f91f89
+sender=marioguima
+SMOKE_TEST_OK
+```
+
+Isso valida de ponta a ponta:
+
+```text
+GitHub push
+-> webhook HTTPS assinado
+-> allowlist repository + branch
+-> persistência SQLite
+-> worker
+-> script local
+-> succeeded
+```
+
+Nenhum deploy real, Docker, Nginx, migration, SSH ou SCP participou do teste.
+
 ## 5. Critério de sucesso
 
 O smoke test está concluído somente quando:
@@ -145,7 +182,9 @@ O smoke test está concluído somente quando:
 4. nenhum deploy real foi executado;
 5. o workflow legado de `main/homolog` não participou do teste.
 
-Depois disso, substituir o mapping temporário pelo deploy real de `homolog`.
+**Estado em 2026-08-14: todos os critérios acima foram atendidos. O smoke test está concluído.**
+
+A próxima etapa é configurar acesso somente leitura do usuário `vps-deployer` ao repositório privado e substituir o mapping temporário pelo deploy real de `homolog`.
 
 ## OCI_SSH_KEY
 
