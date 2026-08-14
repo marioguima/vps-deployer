@@ -97,6 +97,18 @@ A extensão do Compose precisa bater exatamente com o arquivo no Git. O TrackPix
 
 O `docker-compose.prod.yml` é apenas override de limites/logging e não é necessário para o primeiro deploy funcional no Coolify.
 
+Variáveis de homolog foram importadas no recurso via `Environment Variables`, preservando os secrets já gerados anteriormente e configurando explicitamente:
+
+```text
+API_PORT=3100
+PIXEL_PORT=3101
+PUBLIC_TRACKING_BASE_URL=https://track-homolog.intellifyads.com
+```
+
+O primeiro deploy manual foi iniciado com sucesso pelo painel do Coolify para o commit `7420c75...` da branch `homolog`. O histórico/log de deployment passou a ser visível diretamente no dashboard. No momento do registro, o deployment estava `In progress` e já havia concluído a importação do repositório e iniciado a preparação/build do Docker Compose.
+
+Esse ponto valida que a operação normal não precisa mais de `sudo vps-deployer-jobs` ou leitura de logs por SSH: acompanhamento, histórico e logs estão disponíveis no Coolify.
+
 ## Regra aprendida
 
 Scripts com `set -e`, passwords com caracteres especiais e geração de secrets não devem ser colados como um bloco que altera o shell SSH interativo. Para operações destrutivas ou de bootstrap, usar um arquivo versionado executado como processo separado, por exemplo:
@@ -109,11 +121,11 @@ Assim falhas retornam ao prompt e não encerram a sessão Termius.
 
 ## Próximos passos
 
-1. Manter o Nginx atual responsável por 80/443 com proxy Coolify em `Custom`.
-2. Usar a GitHub App conectada ao `trackpixel`.
-3. Carregar `/docker-compose.yml` no recurso homolog.
-4. Importar/preservar as variáveis de homolog existentes.
-5. Validar push -> auto-deploy -> build -> migration -> containers -> health.
+1. Aguardar o primeiro deployment homolog concluir e validar `success`.
+2. Validar containers, migrations e health checks.
+3. Manter o Nginx atual responsável por 80/443 com proxy Coolify em `Custom` e apontá-lo para as portas de homolog.
+4. Configurar endpoint HTTPS definitivo do Coolify/webhook antes de fechar as portas temporárias 8000/6001/6002.
+5. Validar push em `homolog` -> auto-deploy no Coolify.
 6. Repetir para produção (`main`).
 7. Transferir o repositório para a organização e validar novamente.
 8. Só então desativar/remover VPS Deployer, webhook/App antigos e infraestrutura transitória.
