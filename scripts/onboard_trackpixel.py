@@ -6,6 +6,8 @@ import json
 import os
 import re
 import secrets
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -45,6 +47,34 @@ def validate_repository(value: str) -> str:
     return value
 
 
+def require_trackpixel_host_dependencies() -> None:
+    docker = shutil.which("docker")
+    if not docker:
+        raise SystemExit(
+            "Docker Engine is required for TrackPixel. Run: sudo vps-deployer-bootstrap-host"
+        )
+    compose = subprocess.run(
+        [docker, "compose", "version"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    if compose.returncode != 0:
+        raise SystemExit(
+            "Docker Compose plugin is required for TrackPixel. Run: sudo vps-deployer-bootstrap-host"
+        )
+    active = subprocess.run(
+        ["systemctl", "is-active", "--quiet", "docker"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    if active.returncode != 0:
+        raise SystemExit(
+            "Docker service is not active. Run: sudo vps-deployer-bootstrap-host"
+        )
+
+
 def _group_id(name: str) -> int:
     import grp
     try:
@@ -68,6 +98,10 @@ def main() -> int:
 
     repository = validate_repository(args.repository)
     old_repository = validate_repository(args.from_repository) if args.from_repository else None
+
+    # Fail before changing the allowlist/workspaces when the host cannot run the
+    # TrackPixel adapter. Host preparation is a one-time bootstrap concern.
+    require_trackpixel_host_dependencies()
 
     data = load_config()
     deployments = data["deployments"]
