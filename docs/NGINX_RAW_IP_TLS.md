@@ -2,22 +2,22 @@
 
 Este runbook cobre o caso em que o certificado do IP público foi emitido corretamente, mas `curl https://PUBLIC_IP/health` falha durante o handshake TLS com erro semelhante a `tlsv1 unrecognized name`.
 
-## Causa
+## Causa inicial encontrada
 
-HTTPS por IP literal não pode depender de SNI para selecionar o virtual host. Em uma VPS que já possui um `listen 443 ssl default_server` com `ssl_reject_handshake on`, a conexão por IP cai nesse bloco antes de existir uma requisição HTTP capaz de selecionar `server_name PUBLIC_IP`.
+HTTPS por IP literal não deve depender de SNI para selecionar o virtual host. Em uma VPS multi-site foi encontrado um `listen 443 ssl default_server` com `ssl_reject_handshake on`, enquanto o bloco do VPS Deployer tinha apenas `server_name PUBLIC_IP`.
 
-O VPS Deployer precisa, portanto, ser o `default_server` TLS da porta 443 quando o endpoint público é o próprio IP.
+O bloco do VPS Deployer foi então promovido a `default_server` TLS e o bloco antigo deixou de ser default. Essa alteração passou em `nginx -t`, porém **não resolveu sozinha** o `curl https://PUBLIC_IP/health`.
 
-Isso não impede os demais sites HTTPS: requisições com SNI válido continuam sendo encaminhadas aos blocos que possuem seus `server_name` específicos.
+Portanto, a troca do `default_server` é uma integração necessária para o acesso por IP, mas não deve ser tratada como diagnóstico final sem testar separadamente o caminho local e o caminho pelo IP público.
 
-## Diagnóstico
+## Diagnóstico inicial
 
 ```bash
 sudo nginx -T 2>&1 | grep -nE \
   'listen .*443|default_server|ssl_reject_handshake|server_name'
 ```
 
-Caso real observado:
+Caso real observado originalmente:
 
 ```nginx
 server {
@@ -36,87 +36,117 @@ listen [::]:443 ssl;
 server_name PUBLIC_IP;
 ```
 
-## Correção segura
+## Integração aplicada
 
-O objetivo é preservar o bloco antigo de rejeição, mas remover dele a função de `default_server`. O bloco do VPS Deployer assume essa função.
+O bloco antigo de rejeição foi preservado, mas deixou de ser `default_server`. O VPS Deployer passou a ser o default TLS:
 
-### 1. Faça backup dos dois arquivos
+```nginx
+server {
+    listen 443 ssl default_server;
+    listen [::]:443 ssl default_server;
+    server_name PUBLIC_IP;
 
-```bash
-STAMP="$(date +%Y%m%d-%H%M%S)"
-
-sudo cp -a /etc/nginx/sites-available/default \
-  "/etc/nginx/sites-available/default.backup-$STAMP"
-
-sudo cp -a /etc/nginx/sites-available/vps-deployer-ip.conf \
-  "/etc/nginx/sites-available/vps-deployer-ip.conf.backup-$STAMP"
+    ssl_certificate /etc/letsencrypt/live/vps-deployer-ip/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/vps-deployer-ip/privkey.pem;
+}
 ```
 
-### 2. Retire `default_server` do bloco antigo
+O bloco antigo permaneceu como:
 
-```bash
-sudo sed -i \
-  's/listen 443 ssl default_server;/listen 443 ssl;/' \
-  /etc/nginx/sites-available/default
-
-sudo sed -i \
-  's/listen \[::\]:443 ssl default_server;/listen [::]:443 ssl;/' \
-  /etc/nginx/sites-available/default
+```nginx
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name _;
+    ssl_reject_handshake on;
+}
 ```
 
-O `ssl_reject_handshake on` pode permanecer nesse bloco. Ele deixa apenas de ser o fallback TLS global.
-
-### 3. Torne o VPS Deployer o default TLS
-
-```bash
-sudo sed -i \
-  's/listen 443 ssl;/listen 443 ssl default_server;/' \
-  /etc/nginx/sites-available/vps-deployer-ip.conf
-
-sudo sed -i \
-  's/listen \[::\]:443 ssl;/listen [::]:443 ssl default_server;/' \
-  /etc/nginx/sites-available/vps-deployer-ip.conf
-```
-
-### 4. Valide antes de recarregar
+A configuração foi validada com:
 
 ```bash
 sudo nginx -t
-```
-
-Não recarregue se o teste falhar. Use os backups criados no passo 1 para restaurar os arquivos.
-
-### 5. Recarregue
-
-```bash
 sudo systemctl reload nginx
 ```
 
-### 6. Valide o endpoint por IP
+Mesmo assim, o primeiro `curl https://PUBLIC_IP/health` continuou retornando `tlsv1 unrecognized name`.
+
+## Teste que confirmou o default TLS local
+
+Para separar seleção de virtual host de rota de rede, foi testado o Nginx localmente sem SNI:
 
 ```bash
-curl https://PUBLIC_IP/health
+echo | openssl s_client \
+  -connect 127.0.0.1:443 \
+  -noservername \
+  -brief 2>&1
 ```
 
-Resposta esperada:
+Resultado real:
 
-```json
-{"ok":true,"service":"vps-deployer","time":"..."}
+```text
+CONNECTION ESTABLISHED
+Protocol version: TLSv1.3
+Ciphersuite: TLS_AES_256_GCM_SHA384
+Verification: OK
+DONE
 ```
 
-### 7. Confirme que os sites existentes continuam válidos
+Isso confirma que:
 
-Execute pelo menos:
+- o listener TLS local está saudável;
+- o `default_server` atual consegue completar o handshake sem SNI;
+- o certificado é válido no caminho local;
+- a falha restante não pode ser atribuída simplesmente ao bloco antigo ainda conter `ssl_reject_handshake on`.
+
+## Próximo diagnóstico obrigatório: mesma conexão no IP público
+
+O teste anterior usou `127.0.0.1`, enquanto o `curl` com falha usa o IP público. Antes de concluir que SNI é a única diferença, teste o mesmo handshake **sem SNI** no IP público:
 
 ```bash
-sudo nginx -t
+echo | openssl s_client \
+  -connect PUBLIC_IP:443 \
+  -noservername \
+  -brief 2>&1
 ```
 
-E valide externamente os domínios HTTPS já hospedados na VPS.
+Também elimine proxy de ambiente do `curl`:
+
+```bash
+curl --noproxy '*' -vk https://PUBLIC_IP/health
+```
+
+E confira se há variáveis de proxy:
+
+```bash
+env | grep -iE '^(http|https|all|no)_proxy=' || true
+```
+
+Interpretação:
+
+- se `openssl ... PUBLIC_IP ... -noservername` funcionar, o caminho público chega corretamente ao Nginx e deve-se investigar comportamento do cliente/SNI ou proxy;
+- se falhar enquanto `127.0.0.1` funciona, o problema está fora da seleção local do virtual host: rota, NAT, proxy, firewall, balanceador ou outro componente no caminho público;
+- se `curl --noproxy '*'` funcionar e o `curl` comum falhar, a causa é um proxy de ambiente.
+
+## Sobre SNI e IP literal
+
+RFC 6066 define `HostName` do SNI como hostname DNS e proíbe IPv4/IPv6 literal. A documentação do Nginx também alerta que apenas nomes de domínio devem ser usados em SNI e que alguns clientes podem enviar IP por engano; não se deve depender desse comportamento.
+
+Por isso, sempre compare explicitamente:
+
+```bash
+# sem SNI
+echo | openssl s_client -connect PUBLIC_IP:443 -noservername -brief 2>&1
+
+# SNI explícito apenas para diagnóstico
+echo | openssl s_client -connect PUBLIC_IP:443 -servername PUBLIC_IP -brief 2>&1
+```
+
+O segundo comando serve somente para reproduzir o comportamento de um cliente que envie IP literal em SNI; não representa o uso recomendado pelo padrão.
 
 ## Renovação do Certbot
 
-Após migração APT -> Snap, o timer relevante é normalmente:
+Após migração APT -> Snap, o timer relevante é:
 
 ```text
 snap.certbot.renew.timer
@@ -132,4 +162,12 @@ Um `certbot.timer` antigo pode aparecer como resíduo da instalação APT. Não 
 
 ## Regra para instalações futuras
 
-O template `nginx/vps-deployer-ip.conf.template` mantém o bloco HTTPS do VPS Deployer como `default_server`. O script `setup-ip-tls.sh` também detecta previamente um `default_server` existente com `ssl_reject_handshake on` e interrompe a instalação para evitar alterar silenciosamente uma VPS multi-site.
+O template `nginx/vps-deployer-ip.conf.template` mantém o bloco HTTPS do VPS Deployer como `default_server`. O script `setup-ip-tls.sh` detecta previamente um `default_server` existente com `ssl_reject_handshake on` e interrompe a instalação para evitar alterar silenciosamente uma VPS multi-site.
+
+Em VPS multi-site, sempre valide separadamente:
+
+1. `nginx -t`;
+2. handshake local sem SNI em `127.0.0.1:443`;
+3. handshake público sem SNI em `PUBLIC_IP:443`;
+4. `curl --noproxy '*' https://PUBLIC_IP/health`;
+5. domínios HTTPS já hospedados na VPS.
