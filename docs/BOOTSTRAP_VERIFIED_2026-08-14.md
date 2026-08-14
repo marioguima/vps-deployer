@@ -190,9 +190,27 @@ O primeiro erro pode ainda ter sido transitório durante a mudança/reload da co
 
 > O `-k` foi usado apenas durante diagnóstico. O teste final de produção passou sem `-k`.
 
+## Webhook GitHub validado
+
+Após o HTTPS ficar saudável, foi criado um webhook GitHub apontando para:
+
+```text
+https://136.248.109.197/github
+```
+
+com `application/json`, o mesmo segredo configurado em `VPS_DEPLOYER_WEBHOOK_SECRET`, SSL verification habilitada e evento `push` selecionado.
+
+O `ping` enviado pelo GitHub chegou corretamente ao endpoint. Isso valida a cadeia:
+
+```text
+GitHub -> HTTPS público -> Nginx -> /github -> vps-deployer
+```
+
+Neste ponto, a infraestrutura global de recepção de webhooks está pronta. O passo seguinte é cadastrar o primeiro projeto em `/etc/vps-deployer/projects.json` e criar seu script de deploy em `/opt/vps-deployer/project-scripts/`, começando por homologação antes de produção.
+
 ## Estado final desta etapa
 
-HTTPS por IP está concluído e validado. Os endpoints públicos estão prontos para a etapa de integração com GitHub:
+HTTPS por IP e recepção de webhook GitHub estão concluídos e validados. Os endpoints públicos estão prontos:
 
 ```text
 https://136.248.109.197/health
@@ -208,6 +226,8 @@ https://136.248.109.197/github
 5. testar HTTP direto com `curl --noproxy '*'` antes de alterar novamente o Nginx;
 6. confirmar o certificado com o mesmo comando sem `-k`;
 7. se o curl normal falhar mas `--noproxy '*'` funcionar, investigar ambiente/configuração do curl sem assumir a causa;
-8. somente depois configurar os webhooks do GitHub.
+8. configurar o webhook GitHub para `https://PUBLIC_IP/github`;
+9. confirmar que o `ping` do GitHub chega corretamente;
+10. somente depois cadastrar scripts reais de deploy e branches de homologação/produção.
 
 Este arquivo é um registro de validação. Para repetir o procedimento em outra VPS, use `docs/BOOTSTRAP.md` como roteiro principal e `docs/TROUBLESHOOTING.md` para os casos já encontrados.
