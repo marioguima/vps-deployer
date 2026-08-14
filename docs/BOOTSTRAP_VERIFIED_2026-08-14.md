@@ -75,7 +75,7 @@ Também permaneceu visível um `certbot.timer` antigo da instalação APT, sem p
 
 ## Falha no primeiro teste HTTPS por IP
 
-O primeiro teste:
+O teste:
 
 ```bash
 curl https://136.248.109.197/health
@@ -87,55 +87,68 @@ retornou:
 curl: (35) OpenSSL/3.0.13: error:0A000458:SSL routines::tlsv1 unrecognized name
 ```
 
-O certificado já estava emitido; portanto a falha ocorria durante a seleção do virtual host TLS no Nginx, antes de a requisição HTTP chegar ao `vps-deployer`.
+O certificado já estava emitido; portanto a falha ocorre durante o handshake TLS, antes de a requisição HTTP chegar ao `vps-deployer`.
 
-## Causa confirmada no Nginx
+## Nginx multi-site encontrado
 
-A inspeção com `nginx -T` confirmou dois blocos relevantes:
+A inspeção confirmou um bloco de segurança existente em `/etc/nginx/sites-available/default`:
 
-```text
-listen 443 ssl default_server;
-listen [::]:443 ssl default_server;
-server_name _;
-ssl_reject_handshake on;
+```nginx
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name _;
+    ssl_reject_handshake on;
+}
 ```
 
-E, separadamente, o bloco criado para o deployer:
+O bloco do VPS Deployer ficou configurado como:
 
-```text
-server_name 136.248.109.197;
-listen 443 ssl;
-listen [::]:443 ssl;
+```nginx
+server {
+    listen 443 ssl default_server;
+    listen [::]:443 ssl default_server;
+    server_name 136.248.109.197;
+    ssl_certificate /etc/letsencrypt/live/vps-deployer-ip/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/vps-deployer-ip/privkey.pem;
+}
 ```
 
-Isso confirma a causa: requisições TLS para um IP literal não podem depender de SNI para selecionar o bloco `server_name 136.248.109.197`. IPv4/IPv6 literal não é permitido como `HostName` do SNI pelo RFC 6066. A conexão começa no `default_server` de `:443`, que nesta VPS está configurado para rejeitar o handshake com `ssl_reject_handshake on`.
+Antes disso, o bloco de segurança era o `default_server`. Foi feito backup dos dois arquivos, removido `default_server` do bloco antigo e atribuído `default_server` ao bloco do VPS Deployer. `nginx -t` passou e o Nginx foi recarregado com sucesso.
 
-O comportamento é consistente com a documentação do Nginx: `ssl_reject_handshake on` rejeita o handshake do bloco, e a seleção inicial do virtual server TLS ocorre no contexto do servidor default, podendo mudar por SNI quando há um nome DNS válido.
+**Importante:** essa alteração, embora sintaticamente correta e aplicada, **não resolveu** o `curl https://136.248.109.197/health`; o mesmo `tlsv1 unrecognized name` permaneceu. Portanto, não considerar a simples troca de `default_server` como solução final.
 
-## Regra para VPS multi-site
+A documentação oficial do Nginx informa que conexões começam no contexto do servidor default e podem trocar de virtual server durante o handshake via SNI. Ela também alerta que somente nomes de domínio devem ser usados em SNI e que alguns clientes podem passar IP literal de forma não confiável. O próximo diagnóstico deve separar handshake sem SNI de handshake com IP usado como SNI.
 
-Em uma VPS que já tenha um `default_server` TLS de segurança, o instalador do VPS Deployer **não deve substituí-lo automaticamente**. Primeiro é necessário localizar o arquivo que contém o `ssl_reject_handshake on` e decidir conscientemente como integrar o endpoint do IP.
+## Próximo diagnóstico seguro
 
-O script `setup-ip-tls.sh` foi endurecido para detectar a combinação de `:443 default_server` + `ssl_reject_handshake on` antes de emitir/configurar TLS em instalações futuras. Ele agora para e pede inspeção manual, evitando que o problema só apareça após a emissão do certificado.
-
-Para localizar o arquivo real na VPS:
+Sem alterar configuração, testar primeiro TLS sem SNI:
 
 ```bash
-sudo grep -R -n -B 8 -A 8 'ssl_reject_handshake on' \
-  /etc/nginx/sites-available /etc/nginx/conf.d 2>/dev/null
+echo | openssl s_client \
+  -connect 127.0.0.1:443 \
+  -noservername \
+  -brief 2>&1
 ```
 
-Não alterar ou remover o bloco default às cegas: esta VPS hospeda vários domínios HTTPS.
-
-## Próxima etapa
-
-Localizar o arquivo do `default_server` TLS atual e adaptar esse bloco de forma que conexões sem SNI para o IP público recebam o certificado `vps-deployer-ip` e exponham somente `/github` e `/health`, preservando o comportamento dos domínios existentes.
-
-Depois validar:
+Depois, apenas se necessário, comparar com um handshake forçando o IP como nome SNI:
 
 ```bash
-sudo nginx -t
-curl https://136.248.109.197/health
+echo | openssl s_client \
+  -connect 127.0.0.1:443 \
+  -servername 136.248.109.197 \
+  -brief 2>&1
 ```
+
+Interpretação:
+
+- se `-noservername` funcionar e `-servername 136.248.109.197` falhar com `unrecognized name`, o problema está ligado à seleção via SNI/IP literal;
+- se `-noservername` também falhar, ainda existe comportamento de TLS/default server a investigar na configuração ativa.
+
+Não fazer novas alterações no Nginx até esse teste separar os dois casos.
+
+## Regra para instalações futuras
+
+Em uma VPS que já tenha um `default_server` TLS de segurança, o instalador do VPS Deployer não deve substituir comportamento existente silenciosamente. O script `setup-ip-tls.sh` foi endurecido para detectar `:443 default_server` combinado com `ssl_reject_handshake on` e parar para inspeção manual.
 
 Este arquivo é um registro de validação. Para repetir o procedimento em outra VPS, use `docs/BOOTSTRAP.md` como roteiro principal e `docs/TROUBLESHOOTING.md` para os casos já encontrados.
