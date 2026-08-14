@@ -15,7 +15,7 @@ Este registro documenta o primeiro bootstrap real validado do VPS Deployer em um
 
 A VPS possuía Certbot 2.9.0 instalado via APT e sete certificados Let's Encrypt existentes. O setup TLS por IP recusou continuar porque certificados de IP via `webroot` exigem Certbot 5.4+.
 
-A sequência segura e reproduzível para diagnosticar, fazer backup, simular a remoção APT, migrar para Snap e validar os certificados está documentada em `docs/TROUBLESHOOTING.md`, na seção do erro `certbot >= 5.4 is required for webroot IP certificates`.
+A sequência segura e reproduzível para diagnosticar, fazer backup, simular a remoção APT, migrar para Snap e validar os certificados está documentada em `docs/TROUBLESHOOTING.md`.
 
 No bootstrap real:
 
@@ -45,37 +45,54 @@ A saída final confirmou:
 Congratulations, all simulated renewals succeeded
 ```
 
-Portanto, a migração do Certbot foi concluída sem regressão observada nos certificados existentes.
-
 ## Emissão do certificado do IP
 
 Após a migração para Certbot 5.7.0, `scripts/setup-ip-tls.sh` foi executado para o IP público `136.248.109.197`.
 
-Resultado observado:
+Resultado:
 
-- challenge HTTP e validação do Nginx concluíram com sucesso;
-- o certificado para `136.248.109.197` foi emitido com sucesso;
-- certificado salvo em `/etc/letsencrypt/live/vps-deployer-ip/fullchain.pem`;
-- chave salva em `/etc/letsencrypt/live/vps-deployer-ip/privkey.pem`;
-- validade informada até `2026-08-20`;
-- o Certbot informou que configurou renovação automática;
-- o script concluiu e publicou os endpoints esperados `https://136.248.109.197/github` e `https://136.248.109.197/health`.
+- certificado emitido com sucesso;
+- certificado em `/etc/letsencrypt/live/vps-deployer-ip/fullchain.pem`;
+- chave em `/etc/letsencrypt/live/vps-deployer-ip/privkey.pem`;
+- validade inicial até `2026-08-20`;
+- endpoint esperado: `https://136.248.109.197/github`;
+- health: `https://136.248.109.197/health`.
 
-## Renovação automática validada
+## Renovação automática
 
-A inspeção de timers mostrou:
+A inspeção mostrou `snap.certbot.renew.timer` ativo e com próxima execução agendada. O `certbot.timer` antigo da instalação APT permaneceu visível sem próxima execução e deve ser tratado apenas como resíduo legado depois de toda a validação.
 
-```text
-snap.certbot.renew.timer
+## Nginx multi-site e `default_server`
+
+A VPS já possuía em `/etc/nginx/sites-available/default` um bloco TLS de segurança com:
+
+```nginx
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name _;
+    ssl_reject_handshake on;
+}
 ```
 
-com próxima execução agendada. Portanto, a instalação Snap possui renovação automática ativa.
+Antes da integração, esse bloco era o `default_server`. Foram feitos backups e o bloco do VPS Deployer passou a ser o default TLS:
 
-Também permaneceu visível um `certbot.timer` antigo da instalação APT, sem próxima execução agendada. Esse timer legado deve ser tratado como resíduo e removido/desabilitado somente depois de confirmar sua origem; ele não substitui o timer `snap.certbot.renew.timer`.
+```nginx
+server {
+    listen 443 ssl default_server;
+    listen [::]:443 ssl default_server;
+    server_name 136.248.109.197;
 
-## Falha no primeiro teste HTTPS por IP
+    ssl_certificate /etc/letsencrypt/live/vps-deployer-ip/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/vps-deployer-ip/privkey.pem;
+}
+```
 
-O teste:
+`nginx -t` passou e o serviço foi recarregado normalmente.
+
+## Diagnóstico do falso erro TLS
+
+Um primeiro teste simples:
 
 ```bash
 curl https://136.248.109.197/health
@@ -87,42 +104,9 @@ retornou:
 curl: (35) OpenSSL/3.0.13: error:0A000458:SSL routines::tlsv1 unrecognized name
 ```
 
-O certificado já estava emitido; portanto a falha ocorre durante o handshake TLS, antes de a requisição HTTP chegar ao `vps-deployer`.
+Isso inicialmente levou à investigação de SNI/default server. Os testes seguintes mostraram que o Nginx e o certificado estavam corretos.
 
-## Nginx multi-site encontrado
-
-A inspeção confirmou um bloco de segurança existente em `/etc/nginx/sites-available/default`:
-
-```nginx
-server {
-    listen 443 ssl;
-    listen [::]:443 ssl;
-    server_name _;
-    ssl_reject_handshake on;
-}
-```
-
-O bloco do VPS Deployer ficou configurado como:
-
-```nginx
-server {
-    listen 443 ssl default_server;
-    listen [::]:443 ssl default_server;
-    server_name 136.248.109.197;
-    ssl_certificate /etc/letsencrypt/live/vps-deployer-ip/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/vps-deployer-ip/privkey.pem;
-}
-```
-
-Antes disso, o bloco de segurança era o `default_server`. Foi feito backup dos dois arquivos, removido `default_server` do bloco antigo e atribuído `default_server` ao bloco do VPS Deployer. `nginx -t` passou e o Nginx foi recarregado com sucesso.
-
-**Importante:** essa alteração, embora sintaticamente correta e aplicada, **não resolveu** o `curl https://136.248.109.197/health`; o mesmo `tlsv1 unrecognized name` permaneceu. Portanto, não considerar a simples troca de `default_server` como solução final.
-
-A documentação oficial do Nginx informa que conexões começam no contexto do servidor default e podem trocar de virtual server durante o handshake via SNI. Ela também alerta que somente nomes de domínio devem ser usados em SNI e que alguns clientes podem passar IP literal de forma não confiável. O próximo diagnóstico deve separar handshake sem SNI de handshake com IP usado como SNI.
-
-## Próximo diagnóstico seguro
-
-Sem alterar configuração, testar primeiro TLS sem SNI:
+### TLS sem SNI pelo loopback
 
 ```bash
 echo | openssl s_client \
@@ -131,24 +115,72 @@ echo | openssl s_client \
   -brief 2>&1
 ```
 
-Depois, apenas se necessário, comparar com um handshake forçando o IP como nome SNI:
+Resultado:
+
+```text
+CONNECTION ESTABLISHED
+Protocol version: TLSv1.3
+Verification: OK
+```
+
+### TLS sem SNI pelo IP público
 
 ```bash
 echo | openssl s_client \
-  -connect 127.0.0.1:443 \
-  -servername 136.248.109.197 \
+  -connect 136.248.109.197:443 \
+  -noservername \
   -brief 2>&1
 ```
 
-Interpretação:
+Também concluiu TLS 1.3 com `Verification: OK`.
 
-- se `-noservername` funcionar e `-servername 136.248.109.197` falhar com `unrecognized name`, o problema está ligado à seleção via SNI/IP literal;
-- se `-noservername` também falhar, ainda existe comportamento de TLS/default server a investigar na configuração ativa.
+### Acesso HTTP direto ignorando proxies
 
-Não fazer novas alterações no Nginx até esse teste separar os dois casos.
+O teste decisivo foi:
+
+```bash
+curl --noproxy '*' -vk https://136.248.109.197/health
+```
+
+Resultado:
+
+```text
+HTTP/1.1 200 OK
+{"ok":true,"service":"vps-deployer","time":"..."}
+```
+
+Portanto, a cadeia abaixo foi validada com sucesso:
+
+```text
+cliente -> IP público:443 -> TLS -> Nginx -> 127.0.0.1:9100 -> vps-deployer
+```
+
+A diferença entre o `curl` que falhou e o que funcionou foi o bypass explícito de proxy com `--noproxy '*'`. Isso indica que o erro inicial vinha de um proxy/caminho intermediário configurado para o `curl`, e não do certificado ou do endpoint do VPS Deployer.
+
+Para confirmar a origem do proxy em outra instalação, use:
+
+```bash
+env | grep -iE '^(http|https|all|no)_proxy=' || true
+```
+
+Também verifique `~/.curlrc` e `/etc/curlrc` caso não existam variáveis de ambiente.
+
+> O `-k` foi usado apenas durante diagnóstico para separar handshake/conectividade de validação de CA. O teste final de produção deve funcionar sem `-k`.
+
+Teste final recomendado:
+
+```bash
+curl --noproxy '*' https://136.248.109.197/health
+```
 
 ## Regra para instalações futuras
 
-Em uma VPS que já tenha um `default_server` TLS de segurança, o instalador do VPS Deployer não deve substituir comportamento existente silenciosamente. O script `setup-ip-tls.sh` foi endurecido para detectar `:443 default_server` combinado com `ssl_reject_handshake on` e parar para inspeção manual.
+1. validar `/health` local em `127.0.0.1:9100`;
+2. emitir/configurar TLS;
+3. validar Nginx com `nginx -t`;
+4. testar TLS pelo IP com `openssl s_client -noservername`;
+5. testar HTTP direto com `curl --noproxy '*'` antes de alterar novamente o Nginx;
+6. se o curl normal falhar mas `--noproxy '*'` funcionar, investigar proxy de ambiente ou configuração do curl;
+7. somente depois configurar os webhooks do GitHub.
 
 Este arquivo é um registro de validação. Para repetir o procedimento em outra VPS, use `docs/BOOTSTRAP.md` como roteiro principal e `docs/TROUBLESHOOTING.md` para os casos já encontrados.
