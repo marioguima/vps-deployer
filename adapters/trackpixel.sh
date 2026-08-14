@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# sudo commonly resets PATH to secure_path. Docker on this VPS may be installed
-# through snap, so make the adapter independent of the caller's inherited PATH.
+# sudo commonly resets PATH to secure_path. Docker may live in /snap/bin on some
+# hosts, so keep the adapter independent from the caller's inherited PATH.
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin"
 
 PROJECT_ID="${1:-}"
@@ -44,11 +44,18 @@ REPO_DIR="$WORKSPACE_ROOT/repo"
 ENV_FILE="$WORKSPACE_ROOT/.env"
 MANIFEST="$REPO_DIR/.vps-deployer.json"
 NGINX_RENDERED="$WORKSPACE_ROOT/nginx.conf"
+DOCKER_CONFIG="$WORKSPACE_ROOT/.docker"
 
 install -d -o root -g vps-deployer -m 0750 \
   /var/lib/vps-deployer/workspaces \
   "/var/lib/vps-deployer/workspaces/$PROJECT_ID" \
   "$WORKSPACE_ROOT"
+
+# The deployer service intentionally uses ProtectHome=true. A root process
+# spawned through sudo therefore must not depend on /root/.docker. Keep Docker
+# CLI/buildx state inside this project's writable workspace instead.
+install -d -o root -g root -m 0700 "$DOCKER_CONFIG"
+export DOCKER_CONFIG
 
 vps-deployer-checkout "$REPO_DIR"
 [[ -f "$MANIFEST" ]] || { echo "missing $MANIFEST" >&2; exit 2; }
