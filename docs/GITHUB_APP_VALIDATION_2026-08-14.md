@@ -43,6 +43,26 @@ installation_id=153676006
 token emitido com sucesso
 ```
 
+A leitura Git do repositório privado também foi validada com `git ls-remote` usando apenas o installation access token temporário:
+
+```text
+OK: leitura do TrackPixel privado via GitHub App
+homolog_sha=ce6ab0173b1...
+```
+
+O SHA exibido acima foi abreviado apenas neste registro. O GitHub e o deployer trabalham com o SHA completo de 40 caracteres, e o deploy real deve sempre usar o valor completo recebido em `DEPLOY_SHA` pelo webhook.
+
+Com isso, em 2026-08-14 ficou comprovado o fluxo:
+
+```text
+private key da GitHub App
+-> JWT curto
+-> instalação do repositório
+-> installation access token temporário
+-> Git HTTPS autenticado
+-> leitura de marioguima/trackpixel
+```
+
 Nunca registrar JWT, installation token ou conteúdo da private key neste repositório.
 
 ## Erro 1 — `Integration not found`
