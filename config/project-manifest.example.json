@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "environments": {
+    "homolog": {
+      "branch": "homolog",
+      "public_endpoints": [
+        {
+          "name": "site",
+          "host": "example.com",
+          "base_path": "/hml"
+        }
+      ]
+    },
+    "production": {
+      "branch": "main",
+      "public_endpoints": [
+        {
+          "name": "site",
+          "host": "example.com",
+          "base_path": "/"
+        }
+      ]
+    }
+  }
+}
