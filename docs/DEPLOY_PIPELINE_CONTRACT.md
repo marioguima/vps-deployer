@@ -18,6 +18,7 @@ GitHub webhook
 VPS Deployer
    |
    +--> valida assinatura + repository + branch
+   +--> resolve o project_id local autorizado
    +--> coloca job na fila
    +--> autentica no GitHub com GitHub App
    +--> busca exatamente o SHA recebido pelo webhook
@@ -40,6 +41,49 @@ Não faz parte do fluxo normal:
 - `OCI_SSH_KEY`.
 
 Os comandos manuais usados durante o bootstrap existem apenas para instalar e validar a infraestrutura.
+
+---
+
+## Identidade do projeto x localização do repositório
+
+O VPS Deployer separa a identidade interna estável do projeto da localização atual no GitHub.
+
+Durante o onboarding é gerado um identificador local imutável:
+
+```text
+project_id = <repo-name>--<12-hex-gerados>
+```
+
+Exemplo:
+
+```text
+trackpixel--7d2c9a41e6bf
+```
+
+Esse valor é gerado pela infraestrutura, fica na allowlist local e nunca vem do webhook ou do manifesto versionado.
+
+A estrutura física deriva dele:
+
+```text
+/var/lib/vps-deployer/workspaces/<project_id>/homolog
+/var/lib/vps-deployer/workspaces/<project_id>/production
+```
+
+A localização GitHub é uma propriedade separada:
+
+```text
+repository = marioguima/trackpixel
+```
+
+Se o repositório for transferido para uma organização:
+
+```text
+repository = empresa/trackpixel
+```
+
+muda a autorização/localização GitHub, mas o `project_id` e o workspace não mudam.
+
+Isso também evita colisões entre repositórios com o mesmo nome pertencentes a owners diferentes.
 
 ---
 
@@ -128,6 +172,8 @@ health-check path
 configuração pública de build/deploy
 ```
 
+O `project_id` não pertence ao manifesto versionado; ele é identidade local da infraestrutura.
+
 Segredos não pertencem ao repositório:
 
 ```text
@@ -150,7 +196,7 @@ A GitHub App pode ter permissão para **ler** muitos repositórios de uma organi
 A autorização continua sendo explícita no VPS Deployer:
 
 ```text
-repository + branch -> adaptador autorizado
+project_id + repository + branch -> adaptador autorizado
 ```
 
 O `/etc/vps-deployer/projects.json` é a allowlist local.
@@ -162,7 +208,7 @@ GitHub App access != deploy authorization
 manifesto no repo   != deploy authorization
 ```
 
-O payload do webhook nunca fornece comando shell livre.
+O payload do webhook nunca fornece `project_id` confiável nem comando shell livre.
 
 ---
 
@@ -342,9 +388,11 @@ Estado em 2026-08-14:
 [OK] helper permanente vps-deployer-git implementado
 [OK] helper de checkout exato do SHA implementado
 [OK] modelo host + base_path documentado
+[OK] nova versão instalada e testes executados na VPS
+[OK] checkout real do SHA exato do TrackPixel validado na VPS
+[OK] identidade local collision-safe definida: <repo>--<12hex>
 
-[NEXT] instalar a nova versão do VPS Deployer na VPS
-[NEXT] validar helper + checkout real na VPS
+[NEXT] incorporar project_id à allowlist/runtime
 [NEXT] adaptador de deploy TrackPixel
 [NEXT] manifesto do TrackPixel
 [NEXT] cadastrar homolog e main
