@@ -63,6 +63,23 @@ Credenciais locais ficam em:
 
 Nunca registrar a senha real no Git/repositório.
 
+## Falha encontrada: localhost não alcançável pelo Coolify
+
+No onboarding, ao escolher `This machine`, o Coolify tentou gerenciar a própria VPS via SSH como `root` e exibiu `Server is not reachable`.
+
+A instalação não tinha um arquivo `*.pub` separado em `/data/coolify/ssh/keys`, então procurar apenas por chave pública falhava. Foi criado `scripts/repair-coolify-localhost-ssh.sh`, que deriva a chave pública a partir da chave privada já gerenciada pelo Coolify, autoriza exatamente essa chave em `/root/.ssh/authorized_keys`, mantém login root restrito a chave (`without-password`/`prohibit-password`) e valida SSH local pela mesma identidade.
+
+Resultado real:
+
+```text
+Authorized Coolify localhost public key derived from: ssh_key@9faccrkejmxtitt6aumw5wii
+permitrootlogin=without-password
+Warning: Permanently added '127.0.0.1' (ED25519) to the list of known hosts.
+COOLIFY_LOCALHOST_SSH_OK
+```
+
+Isso valida a camada SSH necessária para o Coolify administrar `This machine` sem habilitar senha para root.
+
 ## Regra aprendida
 
 Scripts com `set -e`, passwords com caracteres especiais e geração de secrets não devem ser colados como um bloco que altera o shell SSH interativo. Para operações destrutivas ou de bootstrap, usar um arquivo versionado executado como processo separado, por exemplo:
@@ -75,12 +92,13 @@ Assim falhas retornam ao prompt e não encerram a sessão Termius.
 
 ## Próximos passos
 
-1. Acessar o dashboard do Coolify em `http://136.248.109.197:8000` usando `/root/coolify-admin.txt`.
-2. Manter o Nginx atual responsável por 80/443; não iniciar um proxy Coolify que concorra por essas portas durante a migração.
-3. Configurar GitHub App pelo fluxo automático do Coolify.
-4. Criar o recurso TrackPixel homolog apontando para `marioguima/trackpixel`, branch `homolog`, Docker Compose.
-5. Importar/preservar as variáveis de homolog existentes.
-6. Validar push -> auto-deploy -> build -> migration -> containers -> health.
-7. Repetir para produção (`main`).
-8. Transferir o repositório para a organização e validar novamente.
-9. Só então desativar/remover VPS Deployer, webhook/App antigos e infraestrutura transitória.
+1. Voltar ao onboarding e clicar `Check again` em `This machine`.
+2. Concluir a validação do servidor/Docker.
+3. Manter o Nginx atual responsável por 80/443; não iniciar um proxy Coolify que concorra por essas portas durante a migração.
+4. Configurar GitHub App pelo fluxo automático do Coolify.
+5. Criar o recurso TrackPixel homolog apontando para `marioguima/trackpixel`, branch `homolog`, Docker Compose.
+6. Importar/preservar as variáveis de homolog existentes.
+7. Validar push -> auto-deploy -> build -> migration -> containers -> health.
+8. Repetir para produção (`main`).
+9. Transferir o repositório para a organização e validar novamente.
+10. Só então desativar/remover VPS Deployer, webhook/App antigos e infraestrutura transitória.
