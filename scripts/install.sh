@@ -13,10 +13,13 @@ STATE_DIR=/var/lib/vps-deployer
 LOG_DIR=/var/log/vps-deployer
 SCRIPT_DIR=/opt/vps-deployer/project-scripts
 SERVICE_FILE=/etc/systemd/system/vps-deployer.service
+SUDOERS_FILE=/etc/sudoers.d/vps-deployer-trackpixel
 
 command -v python3 >/dev/null || { echo "python3 is required" >&2; exit 1; }
 command -v git >/dev/null || { echo "git is required" >&2; exit 1; }
 command -v openssl >/dev/null || { echo "openssl is required" >&2; exit 1; }
+command -v sudo >/dev/null || { echo "sudo is required" >&2; exit 1; }
+command -v visudo >/dev/null || { echo "visudo is required" >&2; exit 1; }
 PY_VERSION="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
 python3 - <<'PY'
 import sys
@@ -34,10 +37,19 @@ install -d -o root -g vps-deployer -m 0750 "$CONFIG_DIR"
 install -m 0755 "$ROOT_DIR/src/vps_deployer.py" "$APP_DIR/vps_deployer.py"
 install -m 0755 "$ROOT_DIR/scripts/github_app_git.py" /usr/local/bin/vps-deployer-git
 install -m 0755 "$ROOT_DIR/scripts/checkout.sh" /usr/local/bin/vps-deployer-checkout
+install -m 0755 "$ROOT_DIR/scripts/onboard_trackpixel.py" /usr/local/bin/vps-deployer-onboard-trackpixel
 install -m 0755 "$ROOT_DIR/scripts/doctor.sh" /usr/local/bin/vps-deployer-doctor
 install -m 0755 "$ROOT_DIR/scripts/jobs.sh" /usr/local/bin/vps-deployer-jobs
 install -m 0755 "$ROOT_DIR/scripts/retry.sh" /usr/local/bin/vps-deployer-retry
+install -o root -g root -m 0755 "$ROOT_DIR/adapters/trackpixel.sh" "$SCRIPT_DIR/trackpixel.sh"
 install -m 0644 "$ROOT_DIR/systemd/vps-deployer.service" "$SERVICE_FILE"
+
+install -o root -g root -m 0440 "$ROOT_DIR/sudoers/vps-deployer-trackpixel" "$SUDOERS_FILE"
+visudo -cf "$SUDOERS_FILE" >/dev/null || {
+  rm -f "$SUDOERS_FILE"
+  echo "invalid TrackPixel sudoers configuration" >&2
+  exit 1
+}
 
 if [[ ! -f "$CONFIG_DIR/env" ]]; then
   install -o root -g vps-deployer -m 0640 "$ROOT_DIR/config/env.example" "$CONFIG_DIR/env"
@@ -61,11 +73,10 @@ systemctl daemon-reload
 
 echo
 echo "Installed. Next steps:"
-echo "  1. sudo nano $CONFIG_DIR/env"
-echo "  2. sudo nano $CONFIG_DIR/projects.json"
-echo "  3. sudo vps-deployer-doctor"
-echo "  4. sudo systemctl enable --now vps-deployer"
-echo "  5. sudo systemctl status vps-deployer"
+echo "  1. sudo vps-deployer-doctor"
+echo "  2. sudo systemctl enable --now vps-deployer"
+echo "  3. sudo systemctl status vps-deployer"
 echo
 echo "Private GitHub repositories use /usr/local/bin/vps-deployer-git and vps-deployer-checkout."
+echo "TrackPixel can be registered with sudo vps-deployer-onboard-trackpixel."
 echo "For recommended HTTPS on the public IP, run scripts/setup-ip-tls.sh after configuring the service."
