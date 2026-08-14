@@ -65,12 +65,21 @@ if [[ ! -d "$TARGET_DIR/.git" ]]; then
   git -C "$TARGET_DIR" remote add origin "$EXPECTED_URL"
 else
   ACTUAL_URL="$(git -C "$TARGET_DIR" remote get-url origin 2>/dev/null || true)"
-  [[ "$ACTUAL_URL" == "$EXPECTED_URL" ]] || {
-    echo "origin mismatch in $TARGET_DIR" >&2
-    echo "expected: $EXPECTED_URL" >&2
-    echo "actual:   ${ACTUAL_URL:-<missing>}" >&2
-    exit 2
-  }
+  if [[ "$ACTUAL_URL" != "$EXPECTED_URL" ]]; then
+    # DEPLOY_REPOSITORY is already constrained by the local repository+branch
+    # allowlist before this helper is called. Updating a normal GitHub HTTPS
+    # origin therefore lets the same stable workspace survive owner transfers
+    # and repository renames without trusting arbitrary URLs from the webhook.
+    if [[ "$ACTUAL_URL" =~ ^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\.git$ ]]; then
+      git -C "$TARGET_DIR" remote set-url origin "$EXPECTED_URL"
+      echo "origin_updated old=$ACTUAL_URL new=$EXPECTED_URL"
+    else
+      echo "origin mismatch in $TARGET_DIR" >&2
+      echo "expected: $EXPECTED_URL" >&2
+      echo "actual:   ${ACTUAL_URL:-<missing>}" >&2
+      exit 2
+    fi
+  fi
 fi
 
 # First fetch the authorized branch. For normal pushes this also brings the exact
