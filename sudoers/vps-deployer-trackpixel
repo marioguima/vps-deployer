@@ -1,0 +1,2 @@
+Defaults:vps-deployer env_keep += "DEPLOY_JOB_ID DEPLOY_DELIVERY_ID DEPLOY_REPOSITORY DEPLOY_REF DEPLOY_BRANCH DEPLOY_SHA DEPLOY_SENDER VPS_DEPLOYER_CERTBOT_EMAIL"
+vps-deployer ALL=(root) NOPASSWD: /opt/vps-deployer/project-scripts/trackpixel.sh *
