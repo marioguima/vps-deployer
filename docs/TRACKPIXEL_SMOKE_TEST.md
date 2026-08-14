@@ -69,6 +69,19 @@ sudo vps-deployer-doctor
 
 Esperado: `1 mappings` e demais verificações `OK`.
 
+### Resultado real validado em 2026-08-14
+
+Na primeira execução real, o `doctor` retornou:
+
+```text
+OK registry: /etc/vps-deployer/projects.json (1 mappings)
+OK webhook secret configured
+OK state directory: /var/lib/vps-deployer
+OK log directory: /var/log/vps-deployer
+```
+
+Portanto, o script temporário e a allowlist `marioguima/trackpixel + vps-deployer-smoke` ficaram prontos para receber o primeiro `push` real.
+
 ## 3. Dispare um push real no GitHub
 
 Crie `vps-deployer-smoke` a partir de `homolog` e faça um commit inofensivo nessa branch. O webhook já configurado no repositório deve enviar o evento `push` para:
@@ -78,6 +91,19 @@ https://136.248.109.197/github
 ```
 
 O workflow legado não deve ser disparado porque ele está restrito a `main` e `homolog`.
+
+Uma forma segura no clone local do TrackPixel é:
+
+```bash
+git fetch origin
+git switch homolog
+git pull --ff-only origin homolog
+git switch -c vps-deployer-smoke
+git commit --allow-empty -m "test: validate VPS deployer webhook"
+git push -u origin vps-deployer-smoke
+```
+
+Esse commit vazio existe apenas para gerar um evento `push`; não altera arquivos do TrackPixel.
 
 ## 4. Valide receiver, fila e worker
 
