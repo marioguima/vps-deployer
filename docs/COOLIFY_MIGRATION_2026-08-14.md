@@ -127,13 +127,22 @@ Correção de build:
 
 ## Regra de branches do TrackPixel
 
-Fluxo obrigatório a partir deste ponto:
+Fluxo obrigatório:
 
 ```text
-develop -> homolog -> main
+develop --merge--> homolog --validação real--> main
 ```
 
-Correções de código nunca devem ser commitadas diretamente em `homolog` ou `main`. Toda correção nasce em `develop` e é promovida por merge.
+Sem exceções no fluxo normal:
+
+- `develop` é a branch de trabalho. Toda implementação, correção e ajuste nasce nela.
+- Quando o que está em `develop` estiver pronto para homologação, faz-se merge de `develop` em `homolog` e push/merge no GitHub.
+- O push/merge em `homolog` é o gatilho de deploy automático do Coolify para o ambiente público de homologação HTTPS.
+- O serviço em homolog deve ser testado de verdade antes de qualquer promoção para produção.
+- `main` representa produção e não deve receber merge, commit ou alteração durante a homologação.
+- Só depois de homolog aprovado pode ocorrer promoção de `homolog` para `main`.
+- Promoção para `main` exige decisão explícita; nunca deve acontecer automaticamente como consequência de uma correção ou de um deploy de homolog.
+- Correções nunca devem ser commitadas diretamente em `homolog` ou `main`.
 
 Durante o debugging do primeiro deploy, algumas correções haviam sido feitas diretamente em `homolog`, deixando `develop` para trás. O histórico foi normalizado em 2026-08-14 assim:
 
@@ -142,7 +151,15 @@ Durante o debugging do primeiro deploy, algumas correções haviam sido feitas d
 3. PR #5 promoveu `develop` para `homolog`, restaurando a direção correta do fluxo;
 4. `homolog` passou a apontar para o merge `994a14a1f798d33528be53d5d05652921f75b24e`.
 
-Esse merge em `homolog` deve ser usado como teste de auto-deploy via webhook do Coolify.
+Estado confirmado após a normalização:
+
+```text
+develop = 75cb05967c67aaa1e11a90f17c509e5225a11c37
+homolog = 994a14a1f798d33528be53d5d05652921f75b24e
+main    = f0d7c22e841d8433e0d6c653133bdb892b74cd11  (não alterada nesta promoção)
+```
+
+O merge em `homolog` deve ser usado como teste de auto-deploy via webhook do Coolify. O próximo objetivo é homologar; produção está fora do escopo até aprovação explícita da homologação.
 
 ## Regra aprendida
 
@@ -161,6 +178,8 @@ Assim falhas retornam ao prompt e não encerram a sessão Termius.
 3. Validar containers, migrations e health checks.
 4. Manter o Nginx atual responsável por 80/443 com proxy Coolify em `Custom` e apontá-lo para as portas de homolog.
 5. Configurar endpoint HTTPS definitivo do Coolify/webhook antes de fechar as portas temporárias 8000/6001/6002.
-6. Repetir para produção (`main`) sempre promovendo a partir de `homolog`.
-7. Transferir o repositório para a organização e validar novamente.
-8. Só então desativar/remover VPS Deployer, webhook/App antigos e infraestrutura transitória.
+6. Testar TrackPixel completamente na URL pública de homologação.
+7. Não tocar em `main` enquanto homolog não estiver aprovado explicitamente.
+8. Depois da homologação aprovada, e somente então, promover `homolog` para `main` e configurar/validar produção.
+9. Transferir o repositório para a organização e validar novamente conforme o plano de migração.
+10. Só então desativar/remover VPS Deployer, webhook/App antigos e infraestrutura transitória.
