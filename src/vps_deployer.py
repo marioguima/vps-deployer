@@ -46,8 +46,11 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> "Settings":
+        secret = env("VPS_DEPLOYER_WEBHOOK_SECRET", required=True)
+        if len(secret) < 24 or secret.startswith("CHANGE_ME"):
+            raise RuntimeError("VPS_DEPLOYER_WEBHOOK_SECRET must be a strong secret (at least 24 characters)")
         return cls(
-            secret=env("VPS_DEPLOYER_WEBHOOK_SECRET", required=True),
+            secret=secret,
             bind=env("VPS_DEPLOYER_BIND", "127.0.0.1"),
             port=int(env("VPS_DEPLOYER_PORT", "9100")),
             config_path=Path(env("VPS_DEPLOYER_CONFIG", "/etc/vps-deployer/projects.json")),
@@ -77,11 +80,9 @@ def load_targets(path: Path) -> dict[tuple[str, str], Target]:
         raise RuntimeError(f"Deployment registry not found: {path}") from exc
     except json.JSONDecodeError as exc:
         raise RuntimeError(f"Invalid JSON in deployment registry {path}: {exc}") from exc
-
     deployments = raw.get("deployments")
     if not isinstance(deployments, list):
         raise RuntimeError("projects.json must contain a 'deployments' array")
-
     targets: dict[tuple[str, str], Target] = {}
     for i, item in enumerate(deployments):
         if not isinstance(item, dict):
@@ -123,8 +124,7 @@ class JobStore:
 
     def _init_db(self) -> None:
         with self.connect() as conn:
-            conn.executescript(
-                """
+            conn.executescript("""
                 CREATE TABLE IF NOT EXISTS jobs (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     delivery_id TEXT NOT NULL UNIQUE,
@@ -146,24 +146,16 @@ class JobStore:
                 );
                 CREATE INDEX IF NOT EXISTS jobs_status_id_idx ON jobs(status, id);
                 CREATE INDEX IF NOT EXISTS jobs_repo_ref_idx ON jobs(repository, ref, id);
-                """
-            )
-            conn.execute(
-                "UPDATE jobs SET status='queued', started_at=NULL, error='requeued after deployer restart' WHERE status='running'"
-            )
+            """)
+            conn.execute("UPDATE jobs SET status='queued', started_at=NULL, error='requeued after deployer restart' WHERE status='running'")
 
     def enqueue(self, *, delivery_id: str, repository: str, ref: str, branch: str, sha: str, sender: str, target: Target) -> tuple[bool, int | None]:
         with self.connect() as conn:
             try:
-                cur = conn.execute(
-                    """
-                    INSERT INTO jobs (
-                        delivery_id, repository, ref, branch, sha, sender,
-                        command_json, timeout_seconds, status, received_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?)
-                    """,
-                    (delivery_id, repository, ref, branch, sha, sender, json.dumps(list(target.command)), target.timeout_seconds, utcnow()),
-                )
+                cur = conn.execute("""
+                    INSERT INTO jobs (delivery_id, repository, ref, branch, sha, sender, command_json, timeout_seconds, status, received_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?)
+                """, (delivery_id, repository, ref, branch, sha, sender, json.dumps(list(target.command)), target.timeout_seconds, utcnow()))
                 return True, int(cur.lastrowid)
             except sqlite3.IntegrityError:
                 row = conn.execute("SELECT id FROM jobs WHERE delivery_id=?", (delivery_id,)).fetchone()
@@ -176,26 +168,17 @@ class JobStore:
             if row is None:
                 conn.execute("COMMIT")
                 return None
-            conn.execute(
-                "UPDATE jobs SET status='running', attempts=attempts+1, started_at=?, finished_at=NULL, error=NULL WHERE id=?",
-                (utcnow(), row["id"]),
-            )
+            conn.execute("UPDATE jobs SET status='running', attempts=attempts+1, started_at=?, finished_at=NULL, error=NULL WHERE id=?", (utcnow(), row["id"]))
             conn.execute("COMMIT")
             return conn.execute("SELECT * FROM jobs WHERE id=?", (row["id"],)).fetchone()
 
     def finish(self, job_id: int, *, status: str, exit_code: int | None, error: str | None, log_path: str) -> None:
         with self.connect() as conn:
-            conn.execute(
-                "UPDATE jobs SET status=?, finished_at=?, exit_code=?, error=?, log_path=? WHERE id=?",
-                (status, utcnow(), exit_code, error, log_path, job_id),
-            )
+            conn.execute("UPDATE jobs SET status=?, finished_at=?, exit_code=?, error=?, log_path=? WHERE id=?", (status, utcnow(), exit_code, error, log_path, job_id))
 
     def retry(self, job_id: int) -> bool:
         with self.connect() as conn:
-            cur = conn.execute(
-                "UPDATE jobs SET status='queued', started_at=NULL, finished_at=NULL, exit_code=NULL, error=NULL WHERE id=? AND status='failed'",
-                (job_id,),
-            )
+            cur = conn.execute("UPDATE jobs SET status='queued', started_at=NULL, finished_at=NULL, exit_code=NULL, error=NULL WHERE id=? AND status='failed'", (job_id,))
             return cur.rowcount == 1
 
     def list_jobs(self, limit: int = 30) -> list[sqlite3.Row]:
@@ -231,13 +214,8 @@ class Worker(threading.Thread):
         log_path = self.settings.log_dir / f"job-{job_id}.log"
         child_env = os.environ.copy()
         child_env.update({
-            "DEPLOY_JOB_ID": str(job_id),
-            "DEPLOY_DELIVERY_ID": job["delivery_id"],
-            "DEPLOY_REPOSITORY": job["repository"],
-            "DEPLOY_REF": job["ref"],
-            "DEPLOY_BRANCH": job["branch"],
-            "DEPLOY_SHA": job["sha"],
-            "DEPLOY_SENDER": job["sender"] or "",
+            "DEPLOY_JOB_ID": str(job_id), "DEPLOY_DELIVERY_ID": job["delivery_id"], "DEPLOY_REPOSITORY": job["repository"],
+            "DEPLOY_REF": job["ref"], "DEPLOY_BRANCH": job["branch"], "DEPLOY_SHA": job["sha"], "DEPLOY_SENDER": job["sender"] or ""
         })
         LOG.info("job %s started: %s@%s sha=%s", job_id, job["repository"], job["branch"], job["sha"][:12])
         try:
@@ -271,8 +249,7 @@ class App:
         self.worker = Worker(settings, self.store, self.wake, self.stop)
 
     def resolve_target(self, repository: str, ref: str) -> Target | None:
-        targets = load_targets(self.settings.config_path)
-        target = targets.get((repository.lower(), ref))
+        target = load_targets(self.settings.config_path).get((repository.lower(), ref))
         return target if target and target.enabled else None
 
     def verify_signature(self, body: bytes, supplied: str) -> bool:
@@ -309,9 +286,8 @@ class Handler(BaseHTTPRequestHandler):
         if self.path != "/github":
             self.send_json(404, {"error": "not_found"})
             return
-        length_raw = self.headers.get("Content-Length", "")
         try:
-            length = int(length_raw)
+            length = int(self.headers.get("Content-Length", ""))
         except ValueError:
             self.send_json(400, {"error": "invalid_content_length"})
             return
@@ -319,8 +295,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(413, {"error": "payload_too_large"})
             return
         body = self.rfile.read(length)
-        signature = self.headers.get("X-Hub-Signature-256", "")
-        if not self.app.verify_signature(body, signature):
+        if not self.app.verify_signature(body, self.headers.get("X-Hub-Signature-256", "")):
             self.send_json(401, {"error": "invalid_signature"})
             return
         event = self.headers.get("X-GitHub-Event", "")
@@ -363,9 +338,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(202, {"accepted": False, "reason": "no_deployment_mapping", "repository": repository, "ref": ref})
             return
         branch = ref.removeprefix("refs/heads/") if ref.startswith("refs/heads/") else ref
-        inserted, job_id = self.app.store.enqueue(
-            delivery_id=delivery_id, repository=repository, ref=ref, branch=branch, sha=sha, sender=sender, target=target
-        )
+        inserted, job_id = self.app.store.enqueue(delivery_id=delivery_id, repository=repository, ref=ref, branch=branch, sha=sha, sender=sender, target=target)
         if inserted:
             self.app.wake.set()
             LOG.info("queued job %s for %s@%s sha=%s delivery=%s", job_id, repository, branch, sha[:12], delivery_id)
@@ -387,8 +360,7 @@ def serve(settings: Settings) -> int:
 
     def request_stop(signum: int, _frame: Any) -> None:
         LOG.info("signal %s received; shutting down", signum)
-        app.stop.set()
-        app.wake.set()
+        app.stop.set(); app.wake.set()
         threading.Thread(target=server.shutdown, daemon=True).start()
 
     signal.signal(signal.SIGTERM, request_stop)
@@ -397,10 +369,7 @@ def serve(settings: Settings) -> int:
     try:
         server.serve_forever(poll_interval=0.5)
     finally:
-        app.stop.set()
-        app.wake.set()
-        server.server_close()
-        app.worker.join(timeout=10)
+        app.stop.set(); app.wake.set(); server.server_close(); app.worker.join(timeout=10)
     return 0
 
 
@@ -410,29 +379,20 @@ def doctor(settings: Settings) -> int:
         targets = load_targets(settings.config_path)
         print(f"OK registry: {settings.config_path} ({len(targets)} mappings)")
     except Exception as exc:
-        failures.append(str(exc))
-        print(f"FAIL registry: {exc}")
-    if len(settings.secret) < 24:
-        failures.append("webhook secret should be at least 24 characters")
-        print("FAIL webhook secret is too short (minimum recommended: 24 characters)")
-    else:
-        print("OK webhook secret configured")
+        failures.append(str(exc)); print(f"FAIL registry: {exc}")
+    print("OK webhook secret configured")
     for path, label in ((settings.db_path.parent, "state directory"), (settings.log_dir, "log directory")):
         try:
             path.mkdir(parents=True, exist_ok=True)
-            probe = path / ".write-test"
-            probe.write_text("ok", encoding="utf-8")
-            probe.unlink()
+            probe = path / ".write-test"; probe.write_text("ok", encoding="utf-8"); probe.unlink()
             print(f"OK {label}: {path}")
         except Exception as exc:
-            failures.append(f"{label}: {exc}")
-            print(f"FAIL {label}: {exc}")
+            failures.append(f"{label}: {exc}"); print(f"FAIL {label}: {exc}")
     return 1 if failures else 0
 
 
 def list_jobs(settings: Settings, limit: int) -> int:
-    store = JobStore(settings.db_path)
-    rows = store.list_jobs(limit)
+    rows = JobStore(settings.db_path).list_jobs(limit)
     print("ID\tSTATUS\tREPOSITORY\tBRANCH\tSHA\tRECEIVED")
     for row in rows:
         print(f"{row['id']}\t{row['status']}\t{row['repository']}\t{row['branch']}\t{row['sha'][:12]}\t{row['received_at']}")
@@ -443,23 +403,16 @@ def main(argv: list[str] | None = None) -> int:
     configure_logging()
     parser = argparse.ArgumentParser(description="Global GitHub webhook deploy agent for a VPS")
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("serve")
-    sub.add_parser("doctor")
-    jobs = sub.add_parser("jobs")
-    jobs.add_argument("--limit", type=int, default=30)
-    retry_parser = sub.add_parser("retry")
-    retry_parser.add_argument("job_id", type=int)
+    sub.add_parser("serve"); sub.add_parser("doctor")
+    jobs = sub.add_parser("jobs"); jobs.add_argument("--limit", type=int, default=30)
+    retry_parser = sub.add_parser("retry"); retry_parser.add_argument("job_id", type=int)
     args = parser.parse_args(argv)
     settings = Settings.from_env()
-    if args.command == "serve":
-        return serve(settings)
-    if args.command == "doctor":
-        return doctor(settings)
-    if args.command == "jobs":
-        return list_jobs(settings, args.limit)
+    if args.command == "serve": return serve(settings)
+    if args.command == "doctor": return doctor(settings)
+    if args.command == "jobs": return list_jobs(settings, args.limit)
     if args.command == "retry":
-        store = JobStore(settings.db_path)
-        ok = store.retry(args.job_id)
+        ok = JobStore(settings.db_path).retry(args.job_id)
         print("queued" if ok else "job not found or not failed")
         return 0 if ok else 1
     return 2

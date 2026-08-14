@@ -16,12 +16,16 @@ SERVICE_FILE=/etc/systemd/system/vps-deployer.service
 
 command -v python3 >/dev/null || { echo "python3 is required" >&2; exit 1; }
 PY_VERSION="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+python3 - <<'PY'
+import sys
+if sys.version_info < (3, 10):
+    raise SystemExit("Python 3.10+ is required")
+PY
 echo "Using Python $PY_VERSION"
 
 if ! id vps-deployer >/dev/null 2>&1; then
   useradd --system --home "$STATE_DIR" --shell /usr/sbin/nologin vps-deployer
 fi
-
 install -d -m 0755 /opt/vps-deployer "$APP_DIR" "$SCRIPT_DIR"
 install -d -o vps-deployer -g vps-deployer -m 0750 "$STATE_DIR" "$LOG_DIR"
 install -d -o root -g vps-deployer -m 0750 "$CONFIG_DIR"
@@ -37,7 +41,6 @@ if [[ ! -f "$CONFIG_DIR/env" ]]; then
 else
   echo "Preserving existing $CONFIG_DIR/env"
 fi
-
 if [[ ! -f "$CONFIG_DIR/projects.json" ]]; then
   printf '{\n  "deployments": []\n}\n' > "$CONFIG_DIR/projects.json"
   chown root:vps-deployer "$CONFIG_DIR/projects.json"
@@ -46,12 +49,10 @@ if [[ ! -f "$CONFIG_DIR/projects.json" ]]; then
 else
   echo "Preserving existing $CONFIG_DIR/projects.json"
 fi
-
 if getent group docker >/dev/null 2>&1; then
   usermod -aG docker vps-deployer
   echo "Added vps-deployer to docker group (Docker access is effectively privileged)."
 fi
-
 systemctl daemon-reload
 
 echo
