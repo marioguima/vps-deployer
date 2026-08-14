@@ -10,6 +10,7 @@ Use este índice para reconstruir ou entender o VPS Deployer sem depender de mem
 - [DEPLOY_PIPELINE_CONTRACT.md](DEPLOY_PIPELINE_CONTRACT.md) — contrato da esteira: push em homolog/main deve concluir o deploy sem operação manual.
 - [PROJECT_MANIFEST.md](PROJECT_MANIFEST.md) — estratégia genérica de publicação usando `host + base_path` para raiz, `/hml` ou subdomínio.
 - [GITHUB_APP_SETUP.md](GITHUB_APP_SETUP.md) — criação, permissões, instalação e armazenamento da GitHub App.
+- [COOLIFY_MIGRATION_2026-08-14.md](COOLIFY_MIGRATION_2026-08-14.md) — decisão de migrar para Coolify, instalação, recuperação do `.env` e plano de retirada do VPS Deployer.
 
 ## Operação e segurança
 
