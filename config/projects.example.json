@@ -1,0 +1,18 @@
+{
+  "deployments": [
+    {
+      "repository": "owner/example-app",
+      "branch": "homolog",
+      "command": ["/opt/vps-deployer/project-scripts/example-app.sh", "homolog"],
+      "timeout_seconds": 1800,
+      "enabled": true
+    },
+    {
+      "repository": "owner/example-app",
+      "branch": "main",
+      "command": ["/opt/vps-deployer/project-scripts/example-app.sh", "production"],
+      "timeout_seconds": 1800,
+      "enabled": true
+    }
+  ]
+}

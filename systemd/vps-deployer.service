@@ -1,0 +1,26 @@
+[Unit]
+Description=Global VPS GitHub Webhook Deployer
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=vps-deployer
+Group=vps-deployer
+EnvironmentFile=/etc/vps-deployer/env
+ExecStart=/usr/bin/python3 /opt/vps-deployer/app/vps_deployer.py serve
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=15
+KillSignal=SIGTERM
+UMask=0027
+
+PrivateTmp=true
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target
