@@ -216,7 +216,6 @@ def run_git(repository: str, git_args: list[str], *, env_file: Path, cwd: Path) 
         except FileNotFoundError as exc:
             raise AuthError("git is required but was not found") from exc
         finally:
-            child_env.pop("VPS_DEPLOYER_GITHUB_TOKEN", None)
             token = ""
     return result.returncode
 
