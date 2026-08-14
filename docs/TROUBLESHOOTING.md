@@ -49,6 +49,27 @@ O script `setup-ip-tls.sh` para antes de modificar o Nginx quando detecta Certbo
 
 Isso é intencional. Certbot 5.4+ é necessário para solicitar certificado de endereço IP usando o plugin `webroot`.
 
+### Caso real encontrado no bootstrap
+
+Foi encontrado um servidor com:
+
+```text
+certbot 2.9.0
+/usr/bin/certbot
+```
+
+instalado via APT, com os pacotes:
+
+```text
+certbot
+python3-certbot
+python3-certbot-nginx
+```
+
+e vários certificados já existentes em `/etc/letsencrypt/live`.
+
+Nesse cenário **não remova nem reinstale Certbot antes de validar e fazer backup do estado existente**.
+
 ### 1. Descubra como o Certbot atual foi instalado
 
 Execute:
@@ -58,47 +79,101 @@ certbot --version
 command -v certbot
 snap list certbot 2>/dev/null || true
 dpkg -l | grep -E 'certbot|python3-certbot' || true
+sudo ls -la /etc/letsencrypt/live 2>/dev/null || true
 ```
 
-Guarde a saída antes de trocar pacotes. Em uma VPS que já hospeda outros serviços, `/etc/letsencrypt` pode conter certificados e configurações importantes.
+Se existirem certificados, prossiga pelo fluxo seguro abaixo.
 
-### 2. Instalação moderna recomendada pelo projeto Certbot
+### 2. Faça backup antes da migração
 
-A documentação oficial do Certbot recomenda Snap para a maioria dos usuários Linux. Ela também recomenda remover pacotes Certbot instalados pelo gerenciador da distribuição antes de instalar o Snap, para evitar que o comando `certbot` continue apontando para a versão antiga.
-
-**Antes de remover qualquer pacote em uma VPS já usada, confira os comandos do passo 1 e faça backup de `/etc/letsencrypt` se houver certificados existentes.**
-
-Fluxo típico em Ubuntu:
+Guarde Certbot e Nginx antes de trocar pacotes:
 
 ```bash
-sudo cp -a /etc/letsencrypt /etc/letsencrypt.backup-before-certbot-upgrade 2>/dev/null || true
-sudo apt-get remove certbot python3-certbot-nginx
+STAMP="$(date +%Y%m%d-%H%M%S)"
+sudo tar -C / -czf "$HOME/certbot-nginx-backup-$STAMP.tar.gz" \
+  etc/letsencrypt \
+  etc/nginx
+sudo chown "$(id -u):$(id -g)" "$HOME/certbot-nginx-backup-$STAMP.tar.gz"
+ls -lh "$HOME/certbot-nginx-backup-$STAMP.tar.gz"
+```
+
+Não continue se o arquivo de backup não tiver sido criado.
+
+### 3. Tire uma linha de base antes de alterar o cliente
+
+Liste os certificados conhecidos:
+
+```bash
+sudo certbot certificates
+```
+
+Valide o Nginx:
+
+```bash
+sudo nginx -t
+```
+
+E teste a renovação atual:
+
+```bash
+sudo certbot renew --dry-run
+```
+
+Se a renovação já falhar **antes** da migração, registre essa falha separadamente; não atribua automaticamente o problema ao upgrade.
+
+### 4. Migre do pacote APT para o Snap oficial
+
+O projeto Certbot recomenda Snap para a maioria dos usuários Linux e orienta remover os pacotes do sistema para evitar que o comando `certbot` continue chamando a versão antiga.
+
+Confirme primeiro que `snap` existe:
+
+```bash
+snap version
+```
+
+Se `snap` não existir, instale/configure `snapd` conforme a documentação oficial da sua distribuição antes de continuar.
+
+Com backup e linha de base concluídos:
+
+```bash
+sudo apt-get remove certbot python3-certbot python3-certbot-nginx
 sudo snap install --classic certbot
 sudo ln -s /snap/bin/certbot /usr/local/bin/certbot
 ```
 
-Se o link já existir:
+Se o último comando disser que o link já existe, investigue antes de sobrescrever:
 
 ```bash
 ls -l /usr/local/bin/certbot
 ```
 
-Não sobrescreva um caminho inesperado sem investigar.
+Não use `rm -f` cegamente nesse caminho.
 
-Depois confirme:
+### 5. Valide imediatamente após a migração
+
+O executável usado deve ser o novo Certbot e a versão precisa ser 5.4 ou superior:
 
 ```bash
 certbot --version
 command -v certbot
 ```
 
-É necessário 5.4 ou superior.
+Confira se as lineages anteriores continuam reconhecidas:
 
-> Não execute cegamente a remoção acima em um servidor com setup Certbot personalizado. Primeiro verifique a instalação existente. O objetivo é preservar `/etc/letsencrypt` e substituir apenas o cliente antigo.
+```bash
+sudo certbot certificates
+```
 
-### 3. Confira renovação automática
+Valide novamente Nginx e renovação:
 
-Instalações Snap normalmente incluem o mecanismo de renovação. Confira:
+```bash
+sudo nginx -t
+sudo certbot renew --dry-run
+```
+
+Só considere a migração concluída se os certificados existentes continuarem listados e o teste de renovação estiver saudável, ou se qualquer falha observada for a mesma que já existia na linha de base.
+
+### 6. Confira renovação automática do Snap
 
 ```bash
 systemctl list-timers --all | grep -i certbot || true
@@ -107,14 +182,13 @@ systemctl list-timers --all | grep -i snap.certbot || true
 
 Certificados de IP do Let's Encrypt usam o perfil `shortlived`, portanto a renovação automática não é opcional.
 
-### 4. Atualize sua cópia do VPS Deployer antes de tentar novamente
-
-Se este repositório recebeu correções após o primeiro erro:
+### 7. Atualize o VPS Deployer e tente o IP TLS novamente
 
 ```bash
 cd ~/vps-deployer
 git pull
 sudo ./scripts/install.sh
+sudo vps-deployer-doctor
 ```
 
 Depois:
@@ -122,6 +196,10 @@ Depois:
 ```bash
 sudo ./scripts/setup-ip-tls.sh PUBLIC_IP SEU_EMAIL
 ```
+
+### Por que não usar simplesmente o Certbot 2.9 existente?
+
+O suporte necessário para esse fluxo não existe nele. Certbot 5.3 introduziu `--ip-address` e 5.4 adicionou suporte do plugin `webroot` para emissão de certificados de IP. O script exige 5.4+ deliberadamente.
 
 ---
 
